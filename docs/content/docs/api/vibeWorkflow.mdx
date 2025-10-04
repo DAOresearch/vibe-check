@@ -25,7 +25,7 @@ description: Multi-stage pipeline orchestration for automation workflows
 ```typescript
 export function vibeWorkflow(
   name: string,
-  fn: (ctx: WorkflowContext) => `Promise<void>`,
+  fn: (ctx: WorkflowContext) => Promise<void>,
   options?: {
     timeout?: number;
     defaults?: { workspace?: string; model?: string }
@@ -36,7 +36,7 @@ export function vibeWorkflow(
 ### Parameters
 
 - **`name`** (`string`): Workflow name/description
-- **`fn`** (`(ctx: WorkflowContext) => Promise<void>`): Workflow function with context
+- **`fn`** (`(ctx: WorkflowContext) => Promise<void>): Workflow function with context
 - **`options`** (optional): Workflow configuration
   - `timeout`: Timeout in milliseconds
   - `defaults`: Default workspace and model for all stages
@@ -50,7 +50,7 @@ The workflow context provides stage execution and cumulative state:
 ```typescript
 type WorkflowContext = {
   /** Run one stage, returns RunResult and accumulates into workflow */
-  stage(name: string, opts: RunAgentOptions): `Promise<RunResult>`;
+  stage(name: string, opts: RunAgentOptions): Promise<RunResult>;
 
   /** Access cumulative state across stages */
   files: {
@@ -68,10 +68,10 @@ type WorkflowContext = {
 
   /** Loop helpers */
   until(
-    predicate: (latest: RunResult) => boolean | `Promise<boolean>`,
-    body: () => `Promise<RunResult>`,
+    predicate: (latest: RunResult) => boolean | Promise<boolean>,
+    body: () => Promise<RunResult>,
     opts?: { maxIterations?: number }
-  ): `Promise<RunResult[]>`;
+  ): Promise<RunResult[]>;
 
   /** Default workspace & model overrides for this workflow */
   defaults: { workspace?: string; model?: string };
@@ -80,7 +80,7 @@ type WorkflowContext = {
 
 ### Context Properties
 
-#### `stage(name: string, opts: RunAgentOptions): Promise<RunResult>`
+#### `stage(name: string, opts: RunAgentOptions): Promise<RunResult>
 
 Execute one stage of the workflow. Returns a RunResult and automatically accumulates state into the workflow's cumulative context.
 
@@ -88,7 +88,7 @@ Execute one stage of the workflow. Returns a RunResult and automatically accumul
 - `name`: Stage name (for logging and timeline)
 - `opts`: RunAgent options (see [runAgent](/api/runAgent/))
 
-**Returns:** `Promise<RunResult>`
+**Returns:** Promise&lt;RunResult&gt;
 
 #### `files`
 
@@ -112,13 +112,13 @@ Get unified timeline of events across all stages.
 **Methods:**
 - `events()`: Async iterable of timeline events with stage labels
 
-#### `until(predicate, body, opts?): Promise<RunResult[]>`
+#### `until(predicate, body, opts?): Promise<RunResult[]>
 
 Loop helper for iterative workflows. Executes `body` until `predicate` returns true.
 
 **Parameters:**
 - `predicate`: Function that receives latest RunResult and returns boolean
-- `body`: Function that returns a `Promise<RunResult>` (usually a stage)
+- `body`: Function that returns a Promise&lt;RunResult&gt; (usually a stage)
 - `opts`: Options
   - `maxIterations`: Maximum iterations (default: 10)
 

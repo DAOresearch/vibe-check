@@ -72,7 +72,7 @@ export interface RunResult {
     summary: string;              // first 120 chars or structured title
     ts: number;
     /** Load full content from bundle on demand */
-    load(): `Promise<unknown>`;
+    load(): Promise<unknown>;
   }>;
 
   /** Todos recorded by SDK stream, with status at end of run */
@@ -133,7 +133,7 @@ export interface RunResult {
       body?: string | Buffer;
       contentType?: string
     }
-  ): `Promise<void>`;
+  ): Promise<void>;
 }
 ```
 
