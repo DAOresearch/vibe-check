@@ -9,6 +9,10 @@
     "type": "git",
     "url": "https://github.com/DAOresearch/vibe-check"
   },
+  "bugs": {
+    "url": "https://github.com/DAOresearch/vibe-check/issues"
+  },
+  "homepage": "https://daoresearch.github.io/vibe-check",
   "keywords": [
     "claude-code",
     "testing",
@@ -25,7 +29,7 @@
     "lint": "bun x biome check --write",
     "lint:summary": "bun x biome check --write --reporter=summary",
     "typecheck": "bun x tsc --noEmit",
-    "check": "bun run lint:summary && bun run typecheck",
+    "check": "bun run lint:summary && bun run typecheck && bun run docs:check",
     "dev": "bun run src/index.ts",
     "clean:dev": "rm -rf .dev",
     "clean:test": "rm -rf .dev/reports .dev/screenshots",
