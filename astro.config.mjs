@@ -5,6 +5,7 @@ import { ion } from "starlight-ion-theme";
 // https://astro.build/config
 export default defineConfig({
 	srcDir: "./docs",
+	publicDir: "./docs/public",
 	site: "https://daoresearch.github.io",
 	base: import.meta.env.PROD ? "/vibe-check" : "/",
 	integrations: [

@@ -33,7 +33,7 @@ export function vibeTest(
 ### Parameters
 
 - **`name`** (`string`): Test name/description
-- **`fn`** ((ctx: VibeTestContext) => Promise<void> | void): Test function with context
+- **`fn`** (`(ctx: VibeTestContext) => Promise<void> | void`): Test function with context
 - **`timeoutOrOpts`** (optional): Timeout in ms or options object with timeout
 
 ---
@@ -70,13 +70,13 @@ type VibeTestContext = {
 
 ### Context Properties
 
-#### `runAgent(opts: RunAgentOptions): Promise<RunResult>
+#### `runAgent(opts: RunAgentOptions): Promise<RunResult>`
 
 Execute an agent and get auto-captured execution context.
 
 **See:** [runAgent](/api/runAgent/) for full documentation
 
-#### `judge(res: RunResult, opts): Promise<JudgeResult>
+#### `judge(res: RunResult, opts): Promise<JudgeResult>`
 
 Evaluate agent results using LLM-based rubrics.
 

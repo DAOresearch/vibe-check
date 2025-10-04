@@ -1,4 +1,22 @@
-/* Custom styles for Vibe Check documentation */
+/**
+ * Custom CSS for Vibe Check Documentation
+ *
+ * This file extends the Ion theme with project-specific styles.
+ *
+ * Theme variables:
+ * - Colors: Defined below in :root using Starlight's CSS variables
+ * - Typography: Inherits from Ion theme (https://louisescher.github.io/starlight-ion-theme/)
+ * - Layout: Uses Starlight's responsive grid system
+ *
+ * To customize:
+ * 1. Override CSS variables in :root below
+ * 2. Add component-specific styles in the sections that follow
+ * 3. Test in both light and dark modes (Ion theme auto-switches)
+ *
+ * See:
+ * - Starlight CSS variables: https://starlight.astro.build/guides/css-and-tailwind/#custom-css
+ * - Ion theme docs: https://louisescher.github.io/starlight-ion-theme/
+ */
 
 :root {
 	/* Brand colors - can be customized later */
@@ -7,4 +25,4 @@
 	--sl-color-accent-high: #dbeafe;
 }
 
-/* Additional custom styles can be added here */
+/* Component-specific overrides can be added here */

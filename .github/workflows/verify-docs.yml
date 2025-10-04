@@ -1,0 +1,41 @@
+name: Verify Documentation
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'astro.config.mjs'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'astro.config.mjs'
+      - 'package.json'
+
+jobs:
+  docs-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.2.11
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Lint Markdown
+        run: bun run docs:lint-md
+
+      - name: Run Astro check
+        run: bun run docs:check
+
+      - name: Build documentation
+        run: bun run docs:build
+
+      - name: Check for broken links
+        run: bun run docs:check-links

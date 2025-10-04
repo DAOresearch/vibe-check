@@ -1,0 +1,5 @@
+node_modules
+docs/_archive
+docs/_todo
+.dev
+dist

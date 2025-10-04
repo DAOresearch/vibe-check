@@ -9,6 +9,10 @@
     "type": "git",
     "url": "https://github.com/DAOresearch/vibe-check"
   },
+  "bugs": {
+    "url": "https://github.com/DAOresearch/vibe-check/issues"
+  },
+  "homepage": "https://daoresearch.github.io/vibe-check",
   "keywords": [
     "claude-code",
     "testing",
@@ -25,14 +29,18 @@
     "lint": "bun x biome check --write",
     "lint:summary": "bun x biome check --write --reporter=summary",
     "typecheck": "bun x tsc --noEmit",
-    "check": "bun run lint:summary && bun run typecheck",
+    "check": "bun run lint:summary && bun run typecheck && bun run docs:check",
     "dev": "bun run src/index.ts",
     "clean:dev": "rm -rf .dev",
     "clean:test": "rm -rf .dev/reports .dev/screenshots",
     "docs:dev": "astro dev",
     "docs:build": "astro build",
     "docs:preview": "astro preview",
-    "docs:check": "astro check"
+    "docs:check": "astro check",
+    "docs:lint-md": "markdownlint 'docs/**/*.md' 'docs/**/*.mdx' '*.md'",
+    "docs:lint-md:fix": "markdownlint 'docs/**/*.md' 'docs/**/*.mdx' '*.md' --fix",
+    "docs:check-links": "linkinator dist --recurse --skip 'http://localhost' --format json --silent",
+    "docs:check-links:verbose": "linkinator dist --recurse --skip 'http://localhost'"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
@@ -41,7 +49,9 @@
     "@types/bun": "latest",
     "astro": "^5.14.1",
     "lefthook": "^1.13.5",
+    "linkinator": "^7.0.1",
     "lint-staged": "^16.2.3",
+    "markdownlint-cli": "^0.45.0",
     "sharp": "^0.34.4",
     "starlight-ion-theme": "^2.3.1",
     "ultracite": "5.4.5",

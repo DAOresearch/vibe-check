@@ -36,7 +36,7 @@ export function vibeWorkflow(
 ### Parameters
 
 - **`name`** (`string`): Workflow name/description
-- **`fn`** (`(ctx: WorkflowContext) => Promise<void>): Workflow function with context
+- **`fn`** (`(ctx: WorkflowContext) => Promise<void>`): Workflow function with context
 - **`options`** (optional): Workflow configuration
   - `timeout`: Timeout in milliseconds
   - `defaults`: Default workspace and model for all stages
@@ -80,7 +80,7 @@ type WorkflowContext = {
 
 ### Context Properties
 
-#### `stage(name: string, opts: RunAgentOptions): Promise<RunResult>
+#### `stage(name: string, opts: RunAgentOptions): Promise<RunResult>`
 
 Execute one stage of the workflow. Returns a RunResult and automatically accumulates state into the workflow's cumulative context.
 
@@ -112,7 +112,7 @@ Get unified timeline of events across all stages.
 **Methods:**
 - `events()`: Async iterable of timeline events with stage labels
 
-#### `until(predicate, body, opts?): Promise<RunResult[]>
+#### `until(predicate, body, opts?): Promise<RunResult[]>`
 
 Loop helper for iterative workflows. Executes `body` until `predicate` returns true.
 
