@@ -1,0 +1,277 @@
+---
+title: vibeTest
+description: The main test function for evaluation and benchmarking
+---
+
+[API Reference](/api/) > vibeTest
+
+---
+
+## Overview
+
+`vibeTest` is the evaluation-first API for benchmarking models, enforcing quality gates, and matrix testing configurations. It provides a test context with fixtures for running agents, judging results, and making assertions.
+
+**Use cases:**
+- Benchmarking model performance
+- Quality gates with assertions
+- Matrix testing configurations
+- Cost/token tracking
+- LLM-based evaluation
+
+---
+
+## Signature
+
+```typescript
+export function vibeTest(
+  name: string,
+  fn: (ctx: VibeTestContext) => Promise<void> | void,
+  timeoutOrOpts?: number | { timeout?: number }
+): void;
+```
+
+### Parameters
+
+- **`name`** (`string`): Test name/description
+- **`fn`** (`(ctx: VibeTestContext) => Promise<void> | void`): Test function with context
+- **`timeoutOrOpts`** (optional): Timeout in ms or options object with timeout
+
+---
+
+## VibeTestContext
+
+The test context provides fixtures and utilities:
+
+```typescript
+type VibeTestContext = {
+  /** Execute an agent and get structured results */
+  runAgent(opts: RunAgentOptions): Promise<RunResult>;
+
+  /** LLM-based evaluation with rubrics */
+  judge(
+    res: RunResult,
+    opts: { rubric: Rubric; throwOnFail?: boolean }
+  ): Promise<JudgeResult>;
+
+  /** Vitest expect with custom matchers */
+  expect: typeof import('vitest')['expect'];
+
+  /** Annotate test execution (for reporters) */
+  annotate(
+    message: string,
+    type?: string,
+    attachment?: TestAttachment
+  ): Promise<void>;
+
+  /** Access to Vitest task metadata */
+  task: import('vitest').TestContext['task'];
+};
+```
+
+### Context Properties
+
+#### `runAgent(opts: RunAgentOptions): Promise<RunResult>`
+
+Execute an agent and get auto-captured execution context.
+
+**See:** [runAgent](/api/runAgent/) for full documentation
+
+#### `judge(res: RunResult, opts): Promise<JudgeResult>`
+
+Evaluate agent results using LLM-based rubrics.
+
+**See:** [judge](/api/judge/) for full documentation
+
+#### `expect`
+
+Vitest expect bound to test context, includes all custom matchers.
+
+**See:** [Custom Matchers](/api/matchers/)
+
+#### `annotate(message, type?, attachment?)`
+
+Stream annotations to reporters during test execution. Useful for progress updates and attaching artifacts.
+
+**Parameters:**
+- `message`: Annotation text
+- `type` (optional): Annotation type (e.g., 'tool', 'todo', 'note')
+- `attachment` (optional): File attachment with path/body/contentType
+
+#### `task`
+
+Access to Vitest task metadata for advanced use cases.
+
+---
+
+## Examples
+
+### Basic Benchmarking
+
+```typescript
+import { vibeTest, defineAgent } from '@dao/vibe-check';
+
+const sonnet = defineAgent({
+  name: 'sonnet',
+  model: 'claude-sonnet-4',
+});
+
+vibeTest('benchmark sonnet correctness', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: sonnet,
+    prompt: '/refactor src/index.ts'
+  });
+
+  expect(result).toHaveChangedFiles(['src/index.ts']);
+  expect(result.metrics.totalCostUsd!).toBeLessThan(3);
+});
+```
+
+### Quality Gates with Judge
+
+```typescript
+import { vibeTest, defineAgent, judge } from '@dao/vibe-check';
+
+const qualityRubric = {
+  criteria: [
+    { name: 'correctness', weight: 0.5 },
+    { name: 'maintainability', weight: 0.3 },
+    { name: 'performance', weight: 0.2 },
+  ],
+};
+
+vibeTest('quality gate', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    agent: opus,
+    prompt: '/refactor'
+  });
+
+  const evaluation = await judge(result, {
+    rubric: qualityRubric,
+    throwOnFail: false,
+  });
+
+  expect(evaluation.score!).toBeGreaterThan(0.8);
+});
+```
+
+### File and Tool Assertions
+
+```typescript
+vibeTest('refactor with constraints', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: sonnet,
+    prompt: '/refactor src/**/*.ts'
+  });
+
+  // File assertions
+  expect(result).toHaveChangedFiles(['src/**/*.ts']);
+  expect(result).toHaveNoDeletedFiles();
+
+  // Tool assertions
+  expect(result).toHaveUsedTool('Edit', { min: 1 });
+  expect(result).toUseOnlyTools(['Read', 'Edit', 'Grep']);
+
+  // Quality assertions
+  expect(result).toCompleteAllTodos();
+  expect(result).toHaveNoErrorsInLogs();
+});
+```
+
+### Cost Tracking
+
+```typescript
+vibeTest('stay under budget', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: haiku,
+    prompt: '/fix-types'
+  });
+
+  expect(result).toStayUnderCost(0.50); // USD
+  expect(result.metrics.totalTokens!).toBeLessThan(10000);
+});
+```
+
+### With Annotations
+
+```typescript
+vibeTest('annotated run', async ({ runAgent, annotate, expect }) => {
+  await annotate('Starting analysis phase', 'phase');
+
+  const analyze = await runAgent({
+    agent: analyzer,
+    prompt: '/analyze'
+  });
+
+  if (analyze.files.stats().total > 10) {
+    await annotate('Large change set detected', 'warning');
+  }
+
+  await annotate('Analysis complete, starting fixes', 'phase');
+
+  const fix = await runAgent({
+    agent: fixer,
+    prompt: '/fix',
+    context: analyze
+  });
+
+  expect(fix).toCompleteAllTodos();
+});
+```
+
+### Matrix Testing
+
+```typescript
+import { defineTestSuite } from '@dao/vibe-check';
+
+defineTestSuite({
+  matrix: {
+    model: ['haiku', 'sonnet', 'opus'],
+    maxTurns: [5, 10],
+  },
+  test: ({ model, maxTurns }) => {
+    vibeTest(`${model} in ${maxTurns} turns`, async ({ runAgent, expect }) => {
+      const agent = defineAgent({ model: `claude-${model}-4` });
+
+      const result = await runAgent({
+        agent,
+        prompt: '/refactor',
+        override: { timeouts: { maxTurns } },
+      });
+
+      expect(result.metrics.totalCostUsd!).toBeLessThan(5);
+    });
+  },
+});
+// Generates 6 tests (3 models × 2 turn limits)
+```
+
+---
+
+## Custom Timeouts
+
+```typescript
+// Timeout in milliseconds (3rd parameter)
+vibeTest('long-running evaluation', async ({ runAgent }) => {
+  // test code
+}, 300000); // 5 minutes
+
+// Or use options object
+vibeTest('long-running evaluation', async ({ runAgent }) => {
+  // test code
+}, { timeout: 300000 });
+```
+
+---
+
+## Related Documentation
+
+- **[vibeWorkflow](/api/vibeWorkflow/)** - For automation and multi-stage pipelines
+- **[runAgent](/api/runAgent/)** - Agent execution details
+- **[RunResult](./types.md#runresult)** - Result interface
+- **[Custom Matchers](/api/matchers/)** - All available matchers
+- **[judge](/api/judge/)** - LLM-based evaluation
+- **[Matrix Testing Guide](/guides/evaluation/matrix-testing/)** - Advanced patterns
+
+---
+
+[← Back to API Reference](/api/)

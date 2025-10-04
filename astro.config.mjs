@@ -4,8 +4,9 @@ import { ion } from "starlight-ion-theme";
 
 // https://astro.build/config
 export default defineConfig({
+	srcDir: "./docs",
 	site: "https://daoresearch.github.io",
-	base: "/vibe-check",
+	base: import.meta.env.PROD ? "/vibe-check" : "/",
 	integrations: [
 		starlight({
 			title: "Vibe Check",
@@ -48,7 +49,7 @@ export default defineConfig({
 				},
 			],
 			plugins: [ion()],
-			customCss: ["./src/styles/custom.css"],
+			customCss: ["./docs/styles/custom.css"],
 		}),
 	],
 });

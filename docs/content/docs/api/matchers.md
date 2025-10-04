@@ -1,0 +1,472 @@
+---
+title: matchers
+description: Quality assertions for agent results
+---
+
+[API Reference](/api/) > Custom Matchers
+
+---
+
+## Overview
+
+Vibe Check extends Vitest's `expect` with custom matchers designed for agent execution results. These matchers operate on `RunResult` objects and provide expressive assertions for files, tools, quality, and costs.
+
+**Categories:**
+- [File Matchers](#file-matchers) - Assert on file changes
+- [Tool Matchers](#tool-matchers) - Assert on tool usage
+- [Quality Matchers](#quality-matchers) - Assert on execution quality
+- [Cost Matchers](#cost-matchers) - Assert on resource usage
+
+---
+
+## File Matchers
+
+### `toHaveChangedFiles(paths: string[])`
+
+Assert that specific files were changed (supports globs).
+
+```typescript
+expect(result).toHaveChangedFiles(['src/**/*.ts'])
+expect(result).toHaveChangedFiles(['src/index.ts', 'src/utils.ts'])
+```
+
+**Behavior:**
+- Checks `result.files.filter(glob)` for each path/glob
+- Fails if any specified file was not changed
+- Supports glob patterns (`**/*.ts`, `src/**/*.{ts,js}`)
+
+**Example:**
+
+```typescript
+vibeTest('refactor TypeScript files', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: refactorer,
+    prompt: '/refactor src/**/*.ts'
+  });
+
+  expect(result).toHaveChangedFiles(['src/**/*.ts']);
+});
+```
+
+---
+
+### `toHaveNoDeletedFiles()`
+
+Assert that no files were deleted.
+
+```typescript
+expect(result).toHaveNoDeletedFiles()
+```
+
+**Behavior:**
+- Checks `result.files.changed()` for `changeType === 'deleted'`
+- Fails if any file was deleted
+- Useful for ensuring refactoring doesn't remove files
+
+**Example:**
+
+```typescript
+vibeTest('safe refactor', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: refactorer,
+    prompt: '/refactor without deleting files'
+  });
+
+  expect(result).toHaveNoDeletedFiles();
+});
+```
+
+---
+
+### Future File Matchers
+
+```typescript
+// Coming soon
+expect(result).toHaveAddedFiles(['src/new.ts'])
+expect(result).toHaveModifiedFiles(['src/existing.ts'])
+expect(result).toHaveRenamedFile('old.ts', 'new.ts')
+expect(result).toMatchFileSnapshot('src/index.ts')
+```
+
+---
+
+## Tool Matchers
+
+### `toHaveUsedTool(name: string, opts?: { min?: number; max?: number })`
+
+Assert that a specific tool was used, optionally with count constraints.
+
+```typescript
+expect(result).toHaveUsedTool('Edit')
+expect(result).toHaveUsedTool('Bash', { min: 1 })
+expect(result).toHaveUsedTool('Edit', { min: 2, max: 5 })
+```
+
+**Behavior:**
+- Checks `result.tools.used(name)` count
+- Without options: asserts tool was used at least once
+- With `min`: asserts tool was used at least `min` times
+- With `max`: asserts tool was used at most `max` times
+- With both: asserts count is in range `[min, max]`
+
+**Example:**
+
+```typescript
+vibeTest('uses Edit tool', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: fixer,
+    prompt: '/fix-types'
+  });
+
+  expect(result).toHaveUsedTool('Edit', { min: 1 });
+  expect(result).toHaveUsedTool('Bash', { max: 2 });
+});
+```
+
+---
+
+### `toUseOnlyTools(allowlist: string[])`
+
+Assert that only specified tools were used.
+
+```typescript
+expect(result).toUseOnlyTools(['Read', 'Write', 'Edit'])
+```
+
+**Behavior:**
+- Gets all tools from `result.tools.all()`
+- Fails if any tool not in `allowlist` was used
+- Useful for enforcing tool constraints
+
+**Example:**
+
+```typescript
+vibeTest('restricted toolset', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: constrained,
+    prompt: '/refactor without bash'
+  });
+
+  expect(result).toUseOnlyTools(['Read', 'Edit', 'Grep']);
+});
+```
+
+---
+
+### Future Tool Matchers
+
+```typescript
+// Coming soon
+expect(result).toHaveToolSequence(['Read', 'Edit', 'Bash'])
+expect(result).toHaveSuccessfulTools()
+expect(result).toHaveToolDuration('Edit', { max: 5000 }) // ms
+```
+
+---
+
+## Quality Matchers
+
+### `toCompleteAllTodos()`
+
+Assert that all todos were marked as completed.
+
+```typescript
+expect(result).toCompleteAllTodos()
+```
+
+**Behavior:**
+- Checks `result.todos` for any `status !== 'completed'`
+- Fails if any todo is pending or in_progress
+- Ensures agent finished all tasks
+
+**Example:**
+
+```typescript
+vibeTest('completes all tasks', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: implementer,
+    prompt: '/implement feature'
+  });
+
+  expect(result).toCompleteAllTodos();
+});
+```
+
+---
+
+### `toHaveNoErrorsInLogs()`
+
+Assert that no error messages appear in logs.
+
+```typescript
+expect(result).toHaveNoErrorsInLogs()
+```
+
+**Behavior:**
+- Searches `result.messages` for error keywords
+- Fails if any message contains: `error`, `failed`, `exception`
+- Case-insensitive search
+
+**Example:**
+
+```typescript
+vibeTest('clean execution', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: builder,
+    prompt: '/build'
+  });
+
+  expect(result).toHaveNoErrorsInLogs();
+});
+```
+
+---
+
+### `toPassRubric(rubric: Rubric): Promise<void>`
+
+Assert that execution passes LLM-based quality evaluation.
+
+```typescript
+expect(result).toPassRubric(qualityRubric)
+```
+
+**Behavior:**
+- Runs `judge(result, { rubric })` internally
+- Fails if `passed === false` or `score < rubric.passingScore`
+- Async matcher (returns Promise)
+
+**Example:**
+
+```typescript
+const qualityRubric = {
+  criteria: [
+    { name: 'correctness', weight: 0.5 },
+    { name: 'maintainability', weight: 0.3 },
+    { name: 'readability', weight: 0.2 }
+  ],
+  passingScore: 0.8
+};
+
+vibeTest('meets quality standards', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: refactorer,
+    prompt: '/refactor with quality focus'
+  });
+
+  await expect(result).toPassRubric(qualityRubric);
+});
+```
+
+---
+
+### Future Quality Matchers
+
+```typescript
+// Coming soon
+expect(result).toHaveSuccessfulBuild()
+expect(result).toPassTests()
+expect(result).toHaveNoWarnings()
+```
+
+---
+
+## Cost Matchers
+
+### `toStayUnderCost(maxUsd: number)`
+
+Assert that total cost stays under budget.
+
+```typescript
+expect(result).toStayUnderCost(3.00) // $3.00 USD
+```
+
+**Behavior:**
+- Checks `result.metrics.totalCostUsd`
+- Fails if cost exceeds `maxUsd`
+- Useful for enforcing cost constraints
+
+**Example:**
+
+```typescript
+vibeTest('budget constraint', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: haiku,
+    prompt: '/quick-fix'
+  });
+
+  expect(result).toStayUnderCost(0.50); // $0.50 max
+});
+```
+
+---
+
+### Future Cost Matchers
+
+```typescript
+// Coming soon
+expect(result).toStayUnderTokens(10000)
+expect(result).toCompleteUnder(30000) // ms
+expect(result).toBeMoreEfficientThan(baseline)
+```
+
+---
+
+## Combining Matchers
+
+Matchers can be combined for comprehensive assertions:
+
+```typescript
+vibeTest('comprehensive quality check', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: agent,
+    prompt: '/implement-feature'
+  });
+
+  // File assertions
+  expect(result).toHaveChangedFiles(['src/**/*.ts']);
+  expect(result).toHaveNoDeletedFiles();
+
+  // Tool assertions
+  expect(result).toHaveUsedTool('Edit', { min: 1 });
+  expect(result).toUseOnlyTools(['Read', 'Edit', 'Grep']);
+
+  // Quality assertions
+  expect(result).toCompleteAllTodos();
+  expect(result).toHaveNoErrorsInLogs();
+
+  // Cost assertions
+  expect(result).toStayUnderCost(2.00);
+
+  // Standard Vitest matchers
+  expect(result.metrics.totalTokens!).toBeLessThan(50000);
+  expect(result.files.stats().total).toBeGreaterThan(0);
+});
+```
+
+---
+
+## Negation
+
+All matchers support `.not` for negation:
+
+```typescript
+expect(result).not.toHaveChangedFiles(['docs/**'])
+expect(result).not.toHaveUsedTool('Bash')
+expect(result).not.toStayUnderCost(0.10) // Expect to cost more than $0.10
+```
+
+---
+
+## Custom Matcher Implementation
+
+You can extend matchers for your specific needs:
+
+```typescript
+import { expect } from 'vitest';
+
+expect.extend({
+  toHaveSpecificPattern(result: RunResult, pattern: RegExp) {
+    const files = result.files.changed();
+    const matches = files.filter(f => pattern.test(f.path));
+
+    return {
+      pass: matches.length > 0,
+      message: () =>
+        this.isNot
+          ? `Expected no files to match ${pattern}, but found ${matches.length}`
+          : `Expected files to match ${pattern}, but found none`
+    };
+  }
+});
+
+// Use it
+expect(result).toHaveSpecificPattern(/\.test\.ts$/);
+```
+
+---
+
+## Matcher Type Definitions
+
+```typescript
+declare global {
+  namespace Vi {
+    interface Assertion {
+      // File matchers
+      toHaveChangedFiles(paths: string[]): void;
+      toHaveNoDeletedFiles(): void;
+
+      // Tool matchers
+      toHaveUsedTool(name: string, opts?: { min?: number; max?: number }): void;
+      toUseOnlyTools(allowlist: string[]): void;
+
+      // Quality matchers
+      toCompleteAllTodos(): void;
+      toHaveNoErrorsInLogs(): void;
+      toPassRubric(rubric: Rubric): Promise<void>;
+
+      // Cost matchers
+      toStayUnderCost(maxUsd: number): void;
+    }
+  }
+}
+```
+
+---
+
+## Best Practices
+
+### 1. Use Specific Matchers
+
+```typescript
+// ✅ Good: Specific matcher
+expect(result).toHaveChangedFiles(['src/index.ts']);
+
+// ❌ Bad: Generic assertion
+expect(result.files.get('src/index.ts')).toBeDefined();
+```
+
+### 2. Combine for Comprehensive Coverage
+
+```typescript
+// ✅ Good: Multiple aspects covered
+expect(result).toHaveChangedFiles(['src/**/*.ts']);
+expect(result).toCompleteAllTodos();
+expect(result).toStayUnderCost(3.00);
+
+// ❌ Bad: Only checking one aspect
+expect(result.files.stats().total).toBeGreaterThan(0);
+```
+
+### 3. Use Constraints for Tools
+
+```typescript
+// ✅ Good: Enforce tool limits
+expect(result).toHaveUsedTool('Bash', { max: 2 });
+expect(result).toUseOnlyTools(['Read', 'Edit']);
+
+// ❌ Bad: No constraints
+expect(result.tools.used('Bash')).toBeGreaterThan(0);
+```
+
+### 4. Async Matchers with Await
+
+```typescript
+// ✅ Good: Await async matchers
+await expect(result).toPassRubric(rubric);
+
+// ❌ Bad: Missing await
+expect(result).toPassRubric(rubric); // Won't work!
+```
+
+---
+
+## Related Documentation
+
+- **[vibeTest](/api/vibeTest/)** - Using matchers in tests
+- **[RunResult](./types.md#runresult)** - Result type matchers operate on
+- **[judge](/api/judge/)** - LLM-based evaluation used by toPassRubric
+- **[Evaluation Guide](/guides/evaluation/benchmarking/)** - Matcher patterns
+
+---
+
+[← Back to API Reference](/api/)
