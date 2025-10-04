@@ -667,12 +667,12 @@ class VibeHtmlReporter extends BaseReporter {
 ### Files to Update
 
 #### `/docs/api/` - API Reference
-- [ ] `vibeTest.md` - Update signature, add complete VibeTestContext type
-- [ ] **NEW** `vibeWorkflow.md` - Document workflow API with loop examples
-- [ ] `runAgent.md` - Update RunResult interface, remove placeholder types
-- [ ] `types.md` - Add complete RunResult, FileChange, ToolCall, TimelineEvent types
-- [ ] `matchers.md` - Add file/tool matchers (`toHaveChangedFiles`, `toHaveUsedTool`)
-- [ ] `README.md` - Add vibeWorkflow to core API list
+- [x] `vibeTest.md` - Update signature, add complete VibeTestContext type
+- [x] **NEW** `vibeWorkflow.md` - Document workflow API with loop examples
+- [x] `runAgent.md` - Update RunResult interface, remove placeholder types
+- [x] `types.md` - Add complete RunResult, FileChange, ToolCall, TimelineEvent types
+- [x] `matchers.md` - Add file/tool matchers (`toHaveChangedFiles`, `toHaveUsedTool`)
+- [x] `README.md` - Add vibeWorkflow to core API list
 
 #### `/docs/guides/automation/`
 - [ ] `pipelines.md` - Rewrite using `vibeWorkflow` with stages and loops
@@ -838,12 +838,17 @@ Before declaring documentation complete:
 
 ## Next Steps
 
-**Session 1** (CURRENT): ✅ Created finalized-decisions.md
+**Session 1**: ✅ Created finalized-decisions.md
 
-**Session 2**: Update `/docs/api/` files with authoritative signatures
-- Focus: vibeTest.md, vibeWorkflow.md (new), runAgent.md, types.md, matchers.md
+**Session 2**: ✅ Updated `/docs/api/` files with authoritative signatures
+- ✅ vibeTest.md - Complete signature and VibeTestContext
+- ✅ vibeWorkflow.md - NEW file with workflow API and loops
+- ✅ runAgent.md - Complete RunResult interface
+- ✅ types.md - All core types (RunResult, FileChange, ToolCall, TimelineEvent)
+- ✅ matchers.md - File/tool/quality/cost matchers
+- ✅ README.md - Updated with vibeWorkflow and all new APIs
 
-**Session 3**: Update guides and getting-started tutorials
+**Session 3** (NEXT): Update guides and getting-started tutorials
 - Focus: automation guides, evaluation guides, first-*.md tutorials
 
 **Session 4**: Update internal docs and contributing guides
