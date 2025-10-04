@@ -1,6 +1,6 @@
 {
   "name": "@dao/vibe-check",
-  "module": "src/index.tsx",
+  "module": "src/index.ts",
   "type": "module",
   "private": true,
   "scripts": {
@@ -8,12 +8,13 @@
     "lint:summary": "bun x biome check --write --reporter=summary",
     "typecheck": "bun x tsc --noEmit",
     "check": "bun run lint:summary && bun run typecheck",
-    "dev": "bun run src/index.tsx",
+    "dev": "bun run src/index.ts",
     "clean:dev": "rm -rf .dev",
     "clean:test": "rm -rf .dev/reports .dev/screenshots",
     "docs:dev": "astro dev",
     "docs:build": "astro build",
-    "docs:preview": "astro preview"
+    "docs:preview": "astro preview",
+    "docs:check": "astro check"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",

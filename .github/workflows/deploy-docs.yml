@@ -5,8 +5,8 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'src/content/docs/**'
       - 'astro.config.mjs'
+      - 'package.json'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
@@ -29,7 +29,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.2.11
 
       - name: Install dependencies
         run: bun install

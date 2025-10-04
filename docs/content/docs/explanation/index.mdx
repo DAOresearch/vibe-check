@@ -1,0 +1,68 @@
+---
+title: Explanation
+description: Understanding how Vibe Check works internally
+sidebar:
+  order: 50
+---
+
+This section provides **understanding-oriented documentation** that explains how Vibe Check works internally. These docs are for developers who want to understand the design decisions, architecture, and internal mechanisms.
+
+:::tip[Who Should Read This?]
+- **Contributors** who need to understand internals to write code
+- **Advanced users** debugging or optimizing their usage
+- **Architects** evaluating Vibe Check for their projects
+- **Curious developers** who want to learn from the design
+:::
+
+---
+
+## Architecture & Design
+
+### [Architecture Overview](/explanation/architecture/)
+
+Technical deep-dive into Vibe Check's internal design:
+- **Capture → Process → Inject** architecture
+- ContextManager class and RunBundle structure
+- Hook integration with Claude Code
+- File change detection and correlation
+- Storage strategy (hybrid disk + thin meta)
+- Vitest integration patterns
+
+**Who needs this:** Contributors, advanced users, system architects
+
+---
+
+## Core Concepts
+
+:::note[Coming Soon]
+Deep-dives into core concepts are being written:
+- **Auto-Capture System** - How execution context is automatically recorded
+- **Lazy Loading Pattern** - Why and how file content is loaded on-demand
+- **Fixture System** - How Vitest fixtures provide the magic
+- **Reporter Architecture** - How terminal and HTML reports are generated
+- **Matrix Testing** - How Cartesian products generate test combinations
+:::
+
+---
+
+## Design Decisions
+
+:::note[Coming Soon]
+Documentation of key design decisions and trade-offs:
+- **Why Vitest?** - Why not a custom test runner
+- **Hybrid Storage** - Why disk bundles + thin metadata
+- **Dual API** - Why both `vibeTest` and `vibeWorkflow`
+- **Hook-Based Capture** - Why Claude Code hooks vs other approaches
+:::
+
+---
+
+## Related Documentation
+
+- **[Contributing](/contributing/)** - How to contribute (process and workflow)
+- **[API Reference](/api/)** - Function signatures and types
+- **[Guides](/guides/)** - How to accomplish specific tasks
+
+---
+
+[← Back to Documentation Home](../)

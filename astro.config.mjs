@@ -40,6 +40,10 @@ export default defineConfig({
 					autogenerate: { directory: "recipes" },
 				},
 				{
+					label: "Explanation",
+					autogenerate: { directory: "explanation" },
+				},
+				{
 					label: "Claude Code Integration",
 					autogenerate: { directory: "claude-code" },
 				},

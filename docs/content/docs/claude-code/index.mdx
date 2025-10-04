@@ -10,7 +10,8 @@ Vibe Check includes a production-ready Claude Code scaffold that transforms your
 
 ## What's Included
 
-### [Scaffold System](/claude-code/scaffold/)
+### Scaffold System
+
 Templates, slash commands, and task management for structured development.
 
 **Components:**
@@ -19,9 +20,16 @@ Templates, slash commands, and task management for structured development.
 - **Tasks** - Structured task files that guide implementation
 - **Agents** - Specialized reviewers for different quality aspects
 
+**Location:** `.claude/` directory in this repository
+
+:::note[Documentation Coming Soon]
+Detailed guides for the scaffold system are being written. The code is already in `.claude/` and ready to use. Check the inline documentation in command files.
+:::
+
 ---
 
-### [GitHub Workflows](/claude-code/workflows/)
+### GitHub Workflows
+
 Automated workflows that integrate Claude Code into your development process.
 
 **Available workflows:**
@@ -31,11 +39,14 @@ Automated workflows that integrate Claude Code into your development process.
 - **General Claude** - `@claude` mentions for questions/requests
 - **CI Auto-Fix** - Automatic fix branches on CI failures
 
+**Location:** `.github/workflows/` directory
+
 **All workflows are production-ready and tested.**
 
 ---
 
-### [Task Templates](/claude-code/templates/)
+### Task Templates
+
 Structured templates for different task complexities.
 
 **Templates:**
@@ -49,9 +60,12 @@ Structured templates for different task complexities.
 - Implementation checklist
 - Success verification steps
 
+**Location:** `.claude/templates/` directory
+
 ---
 
-### [Specialized Agents](/claude-code/agents/)
+### Specialized Agents
+
 Code review agents for different quality aspects.
 
 **Available agents:**
@@ -65,6 +79,8 @@ Code review agents for different quality aspects.
 - Runs automatically or on-demand
 - Provides detailed, actionable feedback
 - Integrates with PR review workflows
+
+**Location:** `.claude/agents/` directory
 
 ---
 
@@ -186,7 +202,7 @@ See [Workflows Guide](/claude-code/workflows/) for detailed setup.
 2. Define command in YAML/Markdown format
 3. Use in Claude Code with `/your-command`
 
-See [Scaffold Guide](./scaffold.md#custom-commands) for details.
+See command files in `.claude/commands/` for examples.
 
 ### Configure Specialized Agents
 
@@ -204,7 +220,7 @@ security:
   severity: [high, critical]
 ```
 
-See [Agents Guide](./agents.md#configuration) for full options.
+See agent definitions in `.claude/agents/` for full options.
 
 ---
 
@@ -266,10 +282,9 @@ See [Agents Guide](./agents.md#configuration) for full options.
 
 ## Related Documentation
 
-- **[Scaffold System](/claude-code/scaffold/)** - Complete scaffold reference
-- **[Workflows Guide](/claude-code/workflows/)** - GitHub workflow setup and usage
-- **[Templates](/claude-code/templates/)** - Task template system
-- **[Agents](/claude-code/agents/)** - Specialized agent configuration
+- **[Getting Started](/getting-started/)** - Learn how to use Vibe Check
+- **[API Reference](/api/)** - Complete API documentation
+- **[Examples](/examples/)** - Real-world usage examples
 
 ---
 
