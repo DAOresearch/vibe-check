@@ -1,0 +1,12 @@
+{
+  "recurse": true,
+  "skip": [
+    "http://localhost:*",
+    "https://github.com/DAOresearch/vibe-check/issues/*",
+    "https://github.com/DAOresearch/vibe-check/discussions/*"
+  ],
+  "timeout": 10000,
+  "retry": true,
+  "retryErrors": true,
+  "retryErrorsCount": 3
+}

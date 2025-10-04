@@ -36,7 +36,11 @@
     "docs:dev": "astro dev",
     "docs:build": "astro build",
     "docs:preview": "astro preview",
-    "docs:check": "astro check"
+    "docs:check": "astro check",
+    "docs:lint-md": "markdownlint 'docs/**/*.md' 'docs/**/*.mdx' '*.md'",
+    "docs:lint-md:fix": "markdownlint 'docs/**/*.md' 'docs/**/*.mdx' '*.md' --fix",
+    "docs:check-links": "linkinator dist --recurse --skip 'http://localhost' --format json --silent",
+    "docs:check-links:verbose": "linkinator dist --recurse --skip 'http://localhost'"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
@@ -45,7 +49,9 @@
     "@types/bun": "latest",
     "astro": "^5.14.1",
     "lefthook": "^1.13.5",
+    "linkinator": "^7.0.1",
     "lint-staged": "^16.2.3",
+    "markdownlint-cli": "^0.45.0",
     "sharp": "^0.34.4",
     "starlight-ion-theme": "^2.3.1",
     "ultracite": "5.4.5",
