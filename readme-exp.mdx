@@ -1,0 +1,524 @@
+# @dao/vibe-check
+
+> **Automation _and_ Evaluation for Claude Code — on top of Vitest.**
+> Run agent workflows as pipelines. Benchmark models & configs at scale. Ship with **rich terminal + HTML reports** by default.
+
+- **Automation:** orchestrate multi‑step agent pipelines, chain agents, capture artifacts and metrics.
+- **Evaluation:** matrix test prompts/agents, track cost & quality, and gate releases with LLM judges.
+- **Killer feature:** production‑grade **reporting**—costs, tokens, timelines, transcripts, todos, artifacts.
+
+Built for **Vitest v3**. TypeScript‑first. Streaming‑friendly.
+
+---
+
+## Contents
+
+- [Why vibe‑check?](#why-vibe-check)
+- [Quick Start](#quick-start)
+- [Core Concepts](#core-concepts)
+- [Agent Configuration](#agent-configuration)
+- [Project Source Management](#project-source-management)
+- [Automation Use Cases](#automation-use-cases)
+- [Evaluation Use Cases](#evaluation-use-cases)
+- [Matrix Testing](#matrix-testing)
+- [Rich Reporting](#rich-reporting)
+- [LLM Judges & Rubrics](#llm-judges--rubrics)
+- [API Reference](#api-reference)
+- [Advanced Topics](#advanced-topics)
+- [Examples & Recipes](#examples--recipes)
+- [Status](#status)
+- [License](#license)
+
+---
+
+## Why vibe‑check?
+
+Two jobs, one tool:
+
+- **As an Automation Suite**
+  1. Run **agent pipelines** (multi‑step tasks)
+  2. **Orchestrate multiple agents** with different tools
+  3. Get **production‑grade reporting** on every run
+  4. Reuse **Vitest** infra you already know (fixtures, reporters, CI)
+
+- **As an Evaluation Framework**
+  1. **Benchmark** models, prompts, tools, MCP servers
+  2. **Matrix test** every combination in parallel
+  3. Track **costs, tokens, duration, todos** per run
+  4. Enforce **quality gates** with matchers and LLM‑based judges
+
+> Whether you’re automating or evaluating, you get **rich terminal + HTML reports** with transcripts and tool timelines.
+
+---
+
+## Quick Start
+
+### 1) Install
+
+```bash
+bun add -D @dao/vibe-check vitest
+```
+
+### 2) Create `vitest.config.ts`
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check';
+
+export default defineVibeConfig({
+  test: { include: ['tests/**/*.test.ts'] },
+});
+```
+
+### 3) First Automation — "Analyze then Fix" (works as‑is)
+
+```typescript
+
+// tests/automation.example.test.ts
+import { vibeTest, defineAgent, prompt } from '@dao/vibe-check';
+
+const analyzer = defineAgent({
+  name: 'analyzer',
+  tools: ['Read', 'Grep'],
+  source: { type: 'temp' }, // safe isolated workspace
+});
+
+const fixer = defineAgent({
+  name: 'fixer',
+  tools: ['Edit', 'Read', 'Bash(git *)'],
+  source: { type: 'temp' },
+});
+
+vibeTest('analyze → fix pipeline', async ({ runAgent, expect }) => {
+  const analysis = await runAgent({
+    agent: analyzer,
+    prompt: prompt({ command: '/analyze', text: 'Scan auth module for issues @src/auth/**.ts' }),
+  });
+
+  const fixes = await runAgent({
+    agent: fixer,
+    prompt: prompt({
+      command: '/fix-issues',
+      text: `Address the problems discovered.`,
+      attachments: ['.vibe-artifacts/last-analysis.json'],
+    }),
+  });
+
+  expect(fixes).toCompleteAllTodos();
+  expect(fixes).toHaveNoErrorsInLogs();
+});
+```
+
+Run:
+
+```bash
+bun test
+```
+
+You'll get:
+- ✅ Terminal cost summary
+- 📊 HTML report at `./vibe-report.html` (transcripts, tools, todos, artifacts)
+
+### 4) First Evaluation — Benchmark two agents
+
+```typescript
+
+// tests/eval.example.test.ts
+import { defineTestSuite, defineAgent, vibeTest, prompt, RubricSchema } from '@dao/vibe-check';
+
+const rubric = RubricSchema.parse({
+  criteria: [
+    { id: 'correctness', description: 'Keeps behavior', weight: 0.5, required: true, kind: 'llm' },
+    { id: 'readability', description: 'Improves clarity', weight: 0.3, kind: 'llm' },
+    { id: 'modern_patterns', description: 'Uses modern TS patterns', weight: 0.2, kind: 'llm' },
+  ],
+  passingScore: 0.75,
+  evaluationMethod: 'llm',
+});
+
+defineTestSuite({
+  matrix: {
+    agent: [
+      defineAgent({ name: 'fast', model: 'claude-haiku-3-5', tools: ['Read', 'Edit'], source: { type: 'temp' } }),
+      defineAgent({ name: 'quality', model: 'claude-opus-4', tools: ['Read', 'Edit'], source: { type: 'temp' } }),
+    ],
+  },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name} refactor`, async ({ runAgent, judge, expect }) => {
+      const result = await runAgent({
+        agent,
+        prompt: prompt({ command: '/refactor', text: 'Refactor @src/utils/legacy.ts to modern TS' }),
+      });
+
+      const evaln = await judge(result, { rubric, throwOnFail: false });
+      expect(result).toCompleteAllTodos();
+      expect(evaln.score!).toBeGreaterThan(0.75);
+    });
+  },
+});
+```
+
+---
+
+## Core Concepts
+
+### Prompts (atomic units)
+
+`prompt()` creates a self‑contained, streamable input (command + text + attachments). Use prompts as reusable test "atoms."
+
+```typescript
+const REFACTOR_TO_TS = prompt({
+  command: '/refactor',
+  text: 'Migrate @src/legacy/*.js to TypeScript',
+  attachments: ['docs/refactor-notes.md'],
+});
+```
+
+### Agents (where/how execution happens)
+
+Agents declare model, tools/MCP, source (workspace), timeouts, system prompts, and custom slash‑commands.
+
+```typescript
+const agent = defineAgent({
+  name: 'default',
+  model: 'claude-3-5-sonnet-latest',
+  tools: ['Read', 'Edit', 'Grep', 'Bash(git *)'],
+  source: { type: 'temp' },             // default-safe workspace
+  systemPrompt: { preset: 'base', append: 'Prefer explicit types.' },
+});
+```
+
+### Results (what you get back)
+
+Every run yields a structured `RunResult`: messages, toolCalls, todos, metrics `{ tokens, cost, duration }`, artifacts[].
+
+### Reporting (always on)
+
+Terminal summaries + an HTML report with transcripts, tool timelines, todo status, costs, tokens, and artifact links.
+
+### Matchers (quality gates)
+
+`toStayUnderCost`, `toCompleteAllTodos`, `toUseOnlyTools`, `toHaveNoErrorsInLogs`, `toPassRubric`.
+
+### Judges (LLM evaluation)
+
+Schema‑validated rubrics with hybrid (programmatic + LLM) evaluation. Throw on fail or inspect scores and rationales.
+
+---
+
+## Agent Configuration
+
+Define once, reuse everywhere. Agents are immutable objects.
+
+```typescript
+import { defineAgent } from '@dao/vibe-check';
+
+const reviewAgent = defineAgent({
+  name: 'reviewer',
+  model: 'claude-3-5-sonnet-latest',
+  tools: ['Read', 'Grep'],
+  mcpServers: {
+    db: { url: 'http://localhost:3000', tools: ['query', 'schema'] },
+  },
+  source: { type: 'temp' },
+  timeouts: { maxTurns: 16, timeoutMs: 180_000 },
+  systemPrompt: { preset: 'security-auditor', append: 'Focus on auth flows.' },
+  commands: {
+    '/scan-secrets': {
+      description: 'Scan repository for exposed secrets',
+      preflight: async (ctx) => { /* validate environment */ },
+      transformPrompt: (p) => p + '\nUse trufflehog patterns.',
+      postprocess: async (ctx, result) => { /* write report */ },
+    },
+  },
+});
+```
+
+### System prompts & personas
+
+Use presets (e.g., `'base'` | `'refactorer'` | `'security-auditor'` | `'test-writer'`) and append project‑specific instructions or load from file.
+
+### Tool allowlists
+
+Keep agents safe by declaring allowed tools. MCP servers can be added under `mcpServers`, each exposing a typed tool set.
+
+---
+
+## Project Source Management
+
+Agents run inside a source (workspace). Three modes:
+- `{ type: 'temp' }` (default) – fresh, isolated workspace per run. Safe to try anything.
+- `{ type: 'local', path, isolate? = true }` – work from a local folder with automatic isolation. Original files are never modified.
+- `{ type: 'git', url, branch?, commit?, depth?, worktree?: { isolate?: true, cleanup?: 'always' | 'on-success' | 'never' } }` – run against a repository reference with isolation and configurable cleanup.
+
+**Safety:** All modes support isolation-first behavior. Use cleanup policies to keep workspaces for debugging or remove them automatically.
+
+---
+
+## Automation Use Cases
+
+### Pipelines
+
+Chain runs, pass artifacts forward, store metrics in task metadata for reporting.
+
+```typescript
+vibeTest('pipeline: analyze → fix → verify', async ({ runAgent, artifacts, expect }) => {
+  const analyze = await runAgent({ agent: reviewAgent, prompt: '/analyze @src/' });
+  await artifacts.saveText('analysis.json', JSON.stringify(analyze, null, 2));
+
+  const fix = await runAgent({ agent: defineAgent({ tools: ['Edit', 'Read'], source: { type: 'temp' } }), prompt: '/fix-issues' });
+  const verify = await runAgent({ agent: reviewAgent, prompt: '/verify-fixes' });
+
+  expect(verify).toHaveNoErrorsInLogs();
+  expect(verify).toCompleteAllTodos();
+});
+```
+
+### Multi‑agent orchestration
+
+Give read‑only analysis to one agent; grant write tools to another. Validate with tool allowlists and cost ceilings.
+
+---
+
+## Evaluation Use Cases
+
+- **Model benchmarking** — compare quality vs cost across models.
+- **Prompt A/B** — swap just the prompt; hold agent fixed.
+- **Safety/perf gates** — ensure tool usage and runtime budgets stay within bounds.
+
+---
+
+## Matrix Testing
+
+Rule: Any array in matrix is a dimension. Vibe‑check expands to the Cartesian product.
+
+```typescript
+import { defineTestSuite, defineAgent, vibeTest, prompt } from '@dao/vibe-check';
+
+defineTestSuite({
+  name: 'refactor-matrix',
+  matrix: {
+    agent: [
+      defineAgent({ name: 'sonnet', model: 'claude-sonnet-4-5', tools: ['Read', 'Edit'], source: { type: 'temp' } }),
+      defineAgent({ name: 'opus',   model: 'claude-opus-4',     tools: ['Read', 'Edit'], source: { type: 'temp' } }),
+    ],
+    maxTurns: [8, 16],
+  },
+  test: ({ agent, maxTurns }) => {
+    vibeTest(`${agent.name} in ${maxTurns} turns`, async ({ runAgent, expect }) => {
+      const result = await runAgent({
+        agent,
+        prompt: prompt({ command: '/refactor', text: 'Refactor @src/index.ts' }),
+        override: { timeouts: { maxTurns } },
+      });
+      expect(result).toCompleteAllTodos();
+    });
+  },
+});
+```
+
+**Debugging:** Use `--grep` to run subsets, e.g., `bun test --grep "opus.*16"`.
+
+---
+
+## Rich Reporting
+
+- **Terminal Cost Reporter** – per‑test + total costs.
+- **HTML Reporter** – transcripts, tool timelines, todos, artifacts, metrics.
+
+Enable via `defineVibeConfig()` (default on):
+
+```typescript
+export default defineVibeConfig({
+  test: {
+    reporters: ['default'], // vibe reporters are auto‑added; keep default too
+  },
+});
+```
+
+---
+
+## LLM Judges & Rubrics
+
+Use rubrics to evaluate subjective quality.
+
+```typescript
+import { RubricSchema, vibeTest } from '@dao/vibe-check';
+
+const rubric = RubricSchema.parse({
+  criteria: [
+    { id: 'thoroughness', description: 'Finds critical issues', weight: 0.6, required: true, kind: 'llm' },
+    { id: 'actionability', description: 'Suggestions are actionable', weight: 0.4, kind: 'llm' },
+  ],
+  passingScore: 0.8,
+  evaluationMethod: 'llm',
+});
+
+vibeTest('review quality', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({ prompt: '/review-pr 42' });
+  const evaluation = await judge(result, { rubric, throwOnFail: true });
+  expect(evaluation.score!).toBeGreaterThan(0.8);
+});
+```
+
+---
+
+## API Reference
+
+### `vibeTest(name, fn, timeout?)`
+
+Vitest test with vibe‑check fixtures: `{ runAgent, judge, artifacts, metrics, task, expect }`.
+
+### `prompt(input)`
+
+Create a reusable, streamable prompt.
+
+```typescript
+function prompt(text: string): AsyncIterablePrompt
+function prompt(options: {
+  text: string;
+  command?: string;         // include slash command (e.g., '/refactor')
+  attachments?: string[];   // file paths (images/docs) included in the prompt
+}): AsyncIterablePrompt
+```
+
+### `defineAgent(spec): Agent`
+
+```typescript
+
+type SourceSpec =
+  | { type: 'temp' }
+  | { type: 'local'; path: string; isolate?: boolean }
+  | { type: 'git'; url: string; branch?: string; commit?: string; depth?: number;
+      worktree?: { isolate?: boolean; cleanup?: 'always' | 'on-success' | 'never' } };
+
+type CommandDefinition = {
+  description: string;
+  preflight?: (ctx: { cwd: string }) => Promise<void> | void;
+  transformPrompt?: (text: string) => string;
+  postprocess?: (ctx: { cwd: string }, result: RunResult) => Promise<void> | void;
+};
+
+type AgentSpec = {
+  name?: string;
+  model?: string;                            // default: 'claude-3-5-sonnet-latest'
+  tools?: string[];                          // allowed tools / MCP names
+  mcpServers?: Record<string, { url: string; tools?: string[] }>;
+  source?: SourceSpec;                       // default: { type: 'temp' }
+  timeouts?: { maxTurns?: number; timeoutMs?: number };
+  systemPrompt?: { preset?: string; append?: string; appendFromFile?: string };
+  commands?: Record<string, CommandDefinition>;
+};
+
+declare function defineAgent(spec: AgentSpec): Agent;
+```
+
+### `runAgent(options): Promise<RunResult>`
+
+```typescript
+
+type RunAgentOptions = {
+  prompt: string | AsyncIterablePrompt;
+  agent?: Agent;                 // default agent with safe defaults if omitted
+  override?: Partial<AgentSpec>; // per-run overrides (e.g., model, timeouts)
+};
+
+type RunMetrics = { totalTokens?: number; totalCostUsd?: number; durationMs?: number };
+type ToolCallRecord = { name: string; input: unknown; output?: unknown; ok: boolean; startedAt: number; endedAt?: number };
+type TodoItem = { text: string; status: 'pending' | 'in_progress' | 'completed' };
+
+type RunResult = {
+  messages: Array<{ role: 'system'|'user'|'assistant'|'tool'; content: unknown; ts: number }>;
+  toolCalls: ToolCallRecord[];
+  todos: TodoItem[];
+  metrics: RunMetrics;
+  artifacts: string[]; // file paths captured
+};
+```
+
+### `judge(result, { rubric, throwOnFail? }): Promise<JudgeResult>`
+
+```typescript
+type JudgeResult = { passed: boolean; score?: number; details?: unknown };
+
+const RubricSchema = /* zod schema exported for type-safety */;
+```
+
+### `defineTestSuite({ matrix, name?, test })`
+
+Expands arrays in matrix into Cartesian combinations and invokes `test(combo)` for each.
+
+### `defineVibeConfig(vitestConfig?)`
+
+Adds vibe reporters, sensible timeouts, and TypeScript setup.
+
+---
+
+## Advanced Topics
+
+### Artifacts & Debugging
+
+Use `artifacts.saveText()` and inspect per‑test outputs in `.vibe-artifacts/` and the HTML report.
+
+### Concurrency Control
+
+Use Vitest workers, sequential suites, and per‑test `maxTurns` to tune costs/throttling.
+
+### CI/CD
+
+Run in CI with the same commands; publish `vibe-report.html` as an artifact; gate merges on cost/quality matchers.
+
+### Custom Matchers
+
+We ship:
+- `toStayUnderCost(maxUsd)`
+- `toCompleteAllTodos()`
+- `toUseOnlyTools(allowlist)`
+- `toHaveNoErrorsInLogs()`
+- `toPassRubric(rubric)`
+
+Augment via standard `expect.extend` patterns if needed.
+
+---
+
+## Examples & Recipes
+
+**Cost Gate:**
+
+```typescript
+expect(result).toStayUnderCost(3.50);
+```
+
+**Tool Safety:**
+
+```typescript
+expect(result).toUseOnlyTools(['Read', 'Grep', 'Glob']);
+```
+
+**Snapshot Stable Bits:**
+
+```typescript
+expect(result).toMatchSnapshot({
+  metrics: { totalCostUsd: expect.any(Number), durationMs: expect.any(Number) },
+});
+```
+
+**Prompt Libraries:** export named prompts (e.g., `REFACTOR`, `SECURITY_REVIEW`) and matrix them across agents.
+
+---
+
+## Status
+
+- ✅ Design finalized in this README (API‑first, DX‑first)
+- 🚧 Implementation tracking: fixtures, runner, reporters, judges
+- 🧪 Examples kept compile‑ready and minimal
+
+---
+
+## License
+
+MIT
+
+---
+
+Built with ❤️ for developers who measure twice and ship once.
+
