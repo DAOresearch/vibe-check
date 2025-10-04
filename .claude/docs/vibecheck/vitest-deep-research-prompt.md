@@ -60,6 +60,71 @@ if (validation.passed) {
 
 ---
 
+## Core Design Question: vibeTest vs Separate Automation API
+
+### The Tension
+
+We currently have **one API** (`vibeTest`) serving **two use cases**:
+
+1. **Testing/Evaluation** - Benchmark models, validate quality, gate releases
+2. **Automation/Production** - Run agent pipelines, orchestrate workflows, production operations
+
+**The fundamental question:** Should these share the same API, or should automation have its own primitive?
+
+### The Scenarios
+
+**Scenario A: Testing use case (feels right)**
+```typescript
+vibeTest('benchmark models', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({ agent: sonnet, prompt: '/refactor' });
+  const evaluation = await judge(result, { rubric });
+  expect(evaluation.score).toBeGreaterThan(0.8);
+});
+```
+
+**Scenario B: Production automation (does this feel right?)**
+```typescript
+vibeTest('deploy pipeline', async ({ runAgent }) => {
+  const build = await runAgent({ agent: builder, prompt: '/build' });
+  const test = await runAgent({ agent: tester, prompt: '/test' });
+  const deploy = await runAgent({ agent: deployer, prompt: '/deploy' });
+});
+```
+
+### Critical Questions to Research
+
+1. **Mental Model**: Does "test" terminology make sense for production automation pipelines?
+
+2. **User Perspective**: When a developer writes automation, do they think "I'm writing a test" or "I'm writing a workflow"?
+
+3. **Alternative APIs**: Should we expose:
+   - **Option A**: Just `vibeTest` for everything
+   - **Option B**: `vibeTest` + `vibeWorkflow` (or `vibeAutomation`)
+   - **Option C**: `vibeTest` + `vibePipeline`
+   - **Option D**: Something else entirely
+
+4. **DX Impact**: Which approach feels more natural? More discoverable? Less confusing?
+
+5. **Examples from Other Frameworks**:
+   - Playwright has `test()` and `test.step()` - does step help?
+   - Task runners have separate primitives (tasks vs tests)
+   - How do users perceive the distinction?
+
+### What We Need from Research
+
+**For each potential approach, provide:**
+
+1. **API Design** - Concrete TypeScript signatures
+2. **Usage Examples** - Both simple and complex scenarios
+3. **Mental Model Analysis** - How users would think about it
+4. **Pros/Cons** - Honest trade-offs
+5. **DX Score** - Ergonomics, discoverability, clarity (1-10)
+6. **Recommendation** - Your top choice with rationale
+
+**This is the most critical design decision.** The answer will shape how users perceive and use vibe-check.
+
+---
+
 ## Current State - Context Files
 
 ### Implementation Plan
@@ -181,11 +246,57 @@ You have **deep research capabilities**. Use them extensively. This is not a qui
 - **Artifact passing**: Between jobs - similar to our artifact system?
 - **Conditional execution**: `if` conditions on jobs/steps
 
+#### CRITICAL: vibeTest Appropriateness for Automation
+
+**Research this deeply:**
+
+Does `vibeTest` make sense for production automation, or should we have a separate API?
+
+**Production automation scenario:**
+```typescript
+// Is this the right API for production automation?
+vibeTest('production deployment', async ({ runAgent }) => {
+  const build = await runAgent({ agent: builder, prompt: '/build' });
+  const test = await runAgent({ agent: tester, prompt: '/test' });
+  const deploy = await runAgent({ agent: deployer, prompt: '/deploy' });
+});
+```
+
+**Alternative approaches to explore:**
+
+**Option A: Dedicated workflow API**
+```typescript
+vibeWorkflow('production deployment', async ({ runAgent }) => {
+  // Same implementation, different mental model
+});
+```
+
+**Option B: Pipeline API**
+```typescript
+vibePipeline('production deployment', async ({ runAgent }) => {
+  // Explicit pipeline semantics
+});
+```
+
+**Option C: Reuse vibeTest but with naming convention**
+```typescript
+vibeTest.automation('production deployment', async ({ runAgent }) => {
+  // Clear distinction via API design
+});
+```
+
+**Research questions:**
+1. Mental model: "test" vs "workflow" vs "pipeline" - which resonates for automation?
+2. Code organization: Should automation files live in `tests/` or separate directory?
+3. Discoverability: How do users find the right API for their use case?
+4. Migration: If we add a separate API, how do users transition?
+
 **Questions to answer:**
 1. Can we model agent pipelines as Vitest "projects" or "suites"?
 2. Should we introduce explicit DAG primitives, or keep linear pipelines?
 3. How can we make error recovery in pipelines more ergonomic?
 4. Can reporters act as orchestrators, not just observers?
+5. **Is vibeTest the right primitive for automation, or do we need vibeWorkflow/vibePipeline?**
 
 ### 4. Novel Composition Patterns
 
@@ -499,6 +610,133 @@ For each major decision:
 - **Rationale**: Why this is best
 - **Trade-offs**: What we give up
 
+### Part 6: User-Facing API Design ⭐ CRITICAL (1000-1500 words)
+
+**Recommend the exact APIs users should see:**
+
+This is the **most important deliverable**. We need concrete API design recommendations.
+
+#### 1. For Testing/Evaluation Use Cases
+
+**API Design:**
+```typescript
+// What does the testing API look like?
+// TypeScript signatures
+```
+
+**Usage Examples:**
+- Simple benchmark
+- Matrix testing
+- Quality gates with judges
+
+**Mental Model:** How should users think about this API?
+
+#### 2. For Automation/Workflow Use Cases
+
+**The Core Question:** Same API as testing, or different?
+
+**Option A: Reuse vibeTest**
+```typescript
+// API design if we reuse vibeTest
+vibeTest('automation', async ({ runAgent }) => { ... });
+```
+- Pros & cons
+- Mental model implications
+
+**Option B: Separate API (vibeWorkflow / vibeAutomation / vibePipeline)**
+```typescript
+// API design for separate automation primitive
+vibeWorkflow('automation', async ({ runAgent }) => { ... });
+```
+- Pros & cons
+- Mental model implications
+
+**Option C: Other approach**
+- Your creative alternative
+- Pros & cons
+
+#### 3. Shared Primitives (Used by Both)
+
+**What primitives are shared?**
+- `defineAgent` - Yes, shared
+- `prompt` - Yes, shared
+- `judge` - Yes, shared
+- Any new primitives needed?
+
+**API Signatures:**
+```typescript
+// Complete TypeScript for all shared primitives
+```
+
+#### 4. Decision: One API vs Two APIs ⭐
+
+**Your Recommendation:**
+- [ ] Option A: Just `vibeTest` for everything
+- [ ] Option B: `vibeTest` + `vibeWorkflow`
+- [ ] Option C: `vibeTest` + `vibePipeline`
+- [ ] Option D: Other (specify)
+
+**Rationale (200-300 words):**
+Why is this the best choice? What research supports it?
+
+**Mental Model Analysis:**
+- How users discover the right API for their use case
+- How the naming guides understanding
+- How it reduces cognitive load
+
+**Migration Path:**
+If introducing a new API, how do users transition?
+
+#### 5. API Simplicity Validation
+
+**Confirm that users NEVER need to know about:**
+- Vitest reporters, task metadata, annotations
+- Vitest fixtures, lifecycle hooks (internal only)
+- Worker pools, concurrency primitives (hidden)
+
+**Users ONLY see:**
+- Simple top-level functions (vibeTest, vibeWorkflow?, etc.)
+- Simple primitives (defineAgent, prompt, runAgent, judge)
+- Simple concepts (agents, prompts, results, rubrics)
+
+#### 6. File Organization & Discovery
+
+**Where do users write code?**
+- Testing: `tests/**/*.test.ts`?
+- Automation: `automation/**/*.ts`? `workflows/**/*.ts`?
+- Or same directory with naming conventions?
+
+**How do users discover the right API?**
+- Documentation structure
+- Error messages
+- TypeScript autocomplete
+- Examples
+
+#### 7. Complete API Surface (The Contract)
+
+**List every user-facing export:**
+
+```typescript
+// Main entry (what users import)
+import {
+  vibeTest,           // or vibeTest + vibeWorkflow?
+  defineAgent,
+  prompt,
+  // ... complete list
+} from '@dao/vibe-check';
+```
+
+**Include:**
+- All top-level functions
+- All helper types
+- All matchers
+- All config functions
+
+**Exclude (internal only):**
+- Reporter implementations
+- Fixture definitions
+- Internal utilities
+
 ---
 
 ## Research Methodology
@@ -545,6 +783,9 @@ Your research report should:
 ✅ **Be DX-focused** - Always optimize for developer experience
 ✅ **Be realistic** - Technical feasibility matters
 ✅ **Be visionary** - Include bold ideas worth exploring
+✅ **Recommend clear user-facing APIs** - Part 6 must have specific API design with TypeScript signatures
+✅ **Answer the core question** - vibeTest for automation, or separate API? Clear recommendation with rationale
+✅ **Validate API simplicity** - Confirm users never see Vitest internals, only simple primitives
 
 ---
 
@@ -557,12 +798,67 @@ Your research report should:
 4. **Minimal surface** - Simple things should be simple
 5. **Rich reporting** - This is our killer feature
 
+### API Simplicity Principle ⭐ CRITICAL
+
+**Internal Complexity vs External Simplicity:**
+
+We can (and should) leverage Vitest's full complexity **internally**, but users must see **only simple APIs**.
+
+**Users should NEVER need to understand:**
+- ❌ Vitest reporters (we use them, users don't see them)
+- ❌ Task metadata and annotations (internal implementation detail)
+- ❌ Fixture system mechanics (we extend fixtures, users just get functions)
+- ❌ Lifecycle hooks (beforeEach, afterEach - we use them internally)
+- ❌ Worker pools and concurrency primitives (we configure them, users don't)
+- ❌ Vite/Vitest plugins (internal plumbing)
+
+**Users ONLY see and interact with:**
+- ✅ `vibeTest` (or `vibeWorkflow` / `vibePipeline` - to be decided)
+- ✅ `defineAgent` - Configure agents
+- ✅ `prompt` - Create prompts
+- ✅ `runAgent` - Execute (available in fixture)
+- ✅ `judge` - Evaluate (available in fixture)
+- ✅ Custom matchers - Simple assertions
+- ✅ `defineTestSuite` - Matrix testing
+
+**The Research Task:**
+Find the **simplest possible API** that gives users maximum power while hiding all Vitest complexity.
+
+**Examples of what this means:**
+
+**❌ BAD - Exposing Vitest complexity:**
+```typescript
+import { test, expect } from 'vitest';
+import { agentFixture } from '@dao/vibe-check';
+
+const vibeTest = test.extend(agentFixture);
+
+vibeTest('example', async ({ runAgent, task }) => {
+  const result = await runAgent({ ... });
+  task.meta.result = result; // User shouldn't see task.meta
+});
+```
+
+**✅ GOOD - Simple API:**
+```typescript
+import { vibeTest, defineAgent, prompt } from '@dao/vibe-check';
+
+vibeTest('example', async ({ runAgent }) => {
+  const result = await runAgent({
+    agent: defineAgent({ ... }),
+    prompt: prompt('...'),
+  });
+  // Everything else is hidden
+});
+```
+
 ### Open Questions
 1. Should automation be tests, or separate workflows that share Vitest infra?
 2. Can reporters do more than report? Should they?
 3. How do we make pipelines feel native to Vitest?
 4. What's the right level of abstraction for pipeline orchestration?
 5. How do we maximize reuse of judge, artifacts, metrics across patterns?
+6. **What's the absolute simplest API that still leverages Vitest's power?**
 
 ---
 
