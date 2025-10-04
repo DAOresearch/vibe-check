@@ -134,6 +134,17 @@ Starlight provides built-in components:
 
 See: https://starlight.astro.build/components/using-components/
 
+## 📦 Dependencies
+
+### Sharp (Image Optimization)
+
+`sharp@^0.34.4` (~8MB native binary) is used by Astro for:
+- Optimizing images in documentation
+- Converting images to modern formats (WebP, AVIF)
+- Generating responsive image sets
+
+**Note:** Sharp is platform-specific. The correct binary is downloaded during `bun install` based on your OS/architecture (Linux, macOS, Windows).
+
 ## 🔍 Search
 
 Search is automatically enabled using [Pagefind](https://pagefind.app/) - no configuration needed!

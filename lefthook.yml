@@ -11,6 +11,13 @@ pre-commit:
         - "*.css"
       stage_fixed: true
 
+    - name: Lint Markdown
+      run: bun run docs:lint-md
+      glob:
+        - "docs/**/*.{md,mdx}"
+        - "*.md"
+      fail_text: "Markdown linting failed. Run 'bun run docs:lint-md:fix' to auto-fix."
+
     - name: Check documentation
       run: bun run docs:check
       glob:
