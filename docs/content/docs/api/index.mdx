@@ -16,7 +16,7 @@ Evaluation-first test function for benchmarking and quality gates.
 ```typescript
 vibeTest(
   name: string,
-  fn: (ctx: VibeTestContext) => Promise<void> | void,
+  fn: (ctx: VibeTestContext) => `Promise<void>` | void,
   timeoutOrOpts?: number | { timeout?: number }
 ): void
 ```
@@ -38,7 +38,7 @@ Automation-first workflow function for multi-stage pipelines.
 ```typescript
 vibeWorkflow(
   name: string,
-  fn: (ctx: WorkflowContext) => Promise<void>,
+  fn: (ctx: WorkflowContext) => `Promise<void>`,
   options?: {
     timeout?: number;
     defaults?: { workspace?: string; model?: string }

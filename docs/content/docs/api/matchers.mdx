@@ -402,7 +402,7 @@ declare global {
       // Quality matchers
       toCompleteAllTodos(): void;
       toHaveNoErrorsInLogs(): void;
-      toPassRubric(rubric: Rubric): Promise<void>;
+      toPassRubric(rubric: Rubric): `Promise<void>`;
 
       // Cost matchers
       toStayUnderCost(maxUsd: number): void;

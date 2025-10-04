@@ -203,7 +203,7 @@ async onHookPayload(json: unknown) {
 **`finalize()`** - Called after agent completes
 
 ```typescript
-async finalize(): Promise<RunResult> {
+async finalize(): `Promise<RunResult>` {
   // 1. Read all captured hook events
   const hooks = await readNDJSON(path.join(this.bundleDir, 'hooks.ndjson'));
 
@@ -461,7 +461,7 @@ After `PostToolUse` events or at run end (in `ContextManager.finalize()`)
      before?: {
        sha256: string;
        size: number;
-       text(): Promise<string>;  // Lazy load
+       text(): `Promise<string>`;  // Lazy load
        stream(): NodeJS.ReadableStream;
      };
      after?: { /* same */ };
@@ -522,7 +522,7 @@ task.meta.metrics = { cost: 0.42, tokens: 1234, duration: 5678 };
 task.meta.bundleDir = '/path/to/.vibe-artifacts/test-123';
 ```
 
-**Keep meta small** (JSON-serializable, <10KB). Reporters read full data from disk.
+**Keep meta small** (JSON-serializable, `<10KB`). Reporters read full data from disk.
 
 ### AbortSignal
 

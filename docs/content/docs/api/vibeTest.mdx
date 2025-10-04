@@ -25,7 +25,7 @@ description: The main test function for evaluation and benchmarking
 ```typescript
 export function vibeTest(
   name: string,
-  fn: (ctx: VibeTestContext) => Promise<void> | void,
+  fn: (ctx: VibeTestContext) => `Promise<void>` | void,
   timeoutOrOpts?: number | { timeout?: number }
 ): void;
 ```
@@ -33,7 +33,7 @@ export function vibeTest(
 ### Parameters
 
 - **`name`** (`string`): Test name/description
-- **`fn`** (`(ctx: VibeTestContext) => Promise<void> | void`): Test function with context
+- **`fn`** ((ctx: VibeTestContext) => `Promise<void>` | void): Test function with context
 - **`timeoutOrOpts`** (optional): Timeout in ms or options object with timeout
 
 ---
@@ -45,13 +45,13 @@ The test context provides fixtures and utilities:
 ```typescript
 type VibeTestContext = {
   /** Execute an agent and get structured results */
-  runAgent(opts: RunAgentOptions): Promise<RunResult>;
+  runAgent(opts: RunAgentOptions): `Promise<RunResult>`;
 
   /** LLM-based evaluation with rubrics */
   judge(
     res: RunResult,
     opts: { rubric: Rubric; throwOnFail?: boolean }
-  ): Promise<JudgeResult>;
+  ): `Promise<JudgeResult>`;
 
   /** Vitest expect with custom matchers */
   expect: typeof import('vitest')['expect'];
@@ -61,7 +61,7 @@ type VibeTestContext = {
     message: string,
     type?: string,
     attachment?: TestAttachment
-  ): Promise<void>;
+  ): `Promise<void>`;
 
   /** Access to Vitest task metadata */
   task: import('vitest').TestContext['task'];

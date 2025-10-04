@@ -33,7 +33,7 @@ export interface RunResult {
     summary: string;              // first 120 chars or structured title
     ts: number;
     /** Load full content from bundle on demand */
-    load(): Promise<unknown>;
+    load(): `Promise<unknown>`;
   }>;
 
   /** Todos recorded by SDK stream, with status at end of run */
@@ -94,7 +94,7 @@ export interface RunResult {
       body?: string | Buffer;
       contentType?: string
     }
-  ): Promise<void>;
+  ): `Promise<void>`;
 }
 ```
 
@@ -115,7 +115,7 @@ export interface FileChange {
     sha256: string;
     size: number;
     /** Load full text (decompress if gz) */
-    text(): Promise<string>;
+    text(): `Promise<string>`;
     /** Stream for very large files */
     stream(): NodeJS.ReadableStream;
   };
@@ -123,7 +123,7 @@ export interface FileChange {
   after?: {
     sha256: string;
     size: number;
-    text(): Promise<string>;
+    text(): `Promise<string>`;
     stream(): NodeJS.ReadableStream;
   };
 
@@ -238,10 +238,10 @@ Test context provided to `vibeTest` functions.
 
 ```typescript
 type VibeTestContext = {
-  runAgent(opts: RunAgentOptions): Promise<RunResult>;
-  judge(res: RunResult, opts: { rubric: Rubric; throwOnFail?: boolean }): Promise<JudgeResult>;
+  runAgent(opts: RunAgentOptions): `Promise<RunResult>`;
+  judge(res: RunResult, opts: { rubric: Rubric; throwOnFail?: boolean }): `Promise<JudgeResult>`;
   expect: typeof import('vitest')['expect'];
-  annotate(message: string, type?: string, attachment?: TestAttachment): Promise<void>;
+  annotate(message: string, type?: string, attachment?: TestAttachment): `Promise<void>`;
   task: import('vitest').TestContext['task'];
 };
 ```
@@ -254,7 +254,7 @@ Workflow context provided to `vibeWorkflow` functions.
 
 ```typescript
 type WorkflowContext = {
-  stage(name: string, opts: RunAgentOptions): Promise<RunResult>;
+  stage(name: string, opts: RunAgentOptions): `Promise<RunResult>`;
 
   files: {
     allChanged(): FileChange[];
@@ -270,10 +270,10 @@ type WorkflowContext = {
   };
 
   until(
-    predicate: (latest: RunResult) => boolean | Promise<boolean>,
-    body: () => Promise<RunResult>,
+    predicate: (latest: RunResult) => boolean | `Promise<boolean>`,
+    body: () => `Promise<RunResult>`,
     opts?: { maxIterations?: number }
-  ): Promise<RunResult[]>;
+  ): `Promise<RunResult[]>`;
 
   defaults: { workspace?: string; model?: string };
 };
@@ -508,7 +508,7 @@ declare global {
       toCompleteAllTodos(): void;
       toHaveNoErrorsInLogs(): void;
       toStayUnderCost(maxUsd: number): void;
-      toPassRubric(rubric: Rubric): Promise<void>;
+      toPassRubric(rubric: Rubric): `Promise<void>`;
     }
   }
 }
