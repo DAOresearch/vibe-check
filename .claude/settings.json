@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run check",
+            "command": "bun run lint:summary",
             "timeout": 30
           }
         ]

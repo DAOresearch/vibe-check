@@ -1,5 +1,5 @@
 {
-  "name": "vibe-check",
+  "name": "@dao/vibe-check",
   "module": "src/index.tsx",
   "type": "module",
   "private": true,
