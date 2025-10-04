@@ -1,0 +1,276 @@
+---
+title: Dual API Design
+description: Why Vibe Check provides both vibeTest and vibeWorkflow
+sidebar:
+  order: 2
+---
+
+## The Decision
+
+**Vibe Check provides two distinct APIs: `vibeTest` and `vibeWorkflow`.**
+
+```typescript
+// Evaluation-first API
+vibeTest('benchmark sonnet', async ({ runAgent, expect }) => {
+  const result = await runAgent({ agent, prompt });
+  expect(result).toStayUnderCost(3.00);
+});
+
+// Automation-first API
+vibeWorkflow('deploy pipeline', async (wf) => {
+  await wf.stage('build', { agent, prompt });
+  await wf.stage('deploy', { agent, prompt });
+});
+```
+
+---
+
+## The Alternative: Single Unified API
+
+We considered a single API that handles both use cases:
+
+### Option 1: vibeRun() - Generic API
+```typescript
+vibeRun('task name', async ({ runAgent, stage }) => {
+  // Could do either evaluation or automation
+  const result = await runAgent({ agent, prompt });
+  expect(result).toStayUnderCost(3.00);  // Evaluation
+
+  // OR
+  await stage('build', { agent, prompt });  // Automation
+});
+```
+
+**Problems:**
+- ❌ **Unclear intent** - What is this test doing?
+- ❌ **Mixed semantics** - Evaluation and automation have different mental models
+- ❌ **API bloat** - Every user gets all features, even unused ones
+- ❌ **Confusing docs** - "When do I use stage? When do I use runAgent?"
+
+### Option 2: vibeTest() with stage()
+```typescript
+vibeTest('deploy', async ({ runAgent, stage, expect }) => {
+  await stage('build', { agent, prompt });  // Feels wrong in a "test"
+});
+```
+
+**Problems:**
+- ❌ **Misleading name** - This isn't a test, it's automation
+- ❌ **Confusing semantics** - Tests shouldn't have multi-stage pipelines
+- ❌ **Mixed concerns** - Evaluation matchers + automation stages = messy
+
+---
+
+## Why Dual API is Better
+
+### 1. Clear Intent
+
+**vibeTest** signals: "I'm evaluating/benchmarking something"
+```typescript
+vibeTest('haiku vs sonnet', async ({ runAgent, expect }) => {
+  // Clear: This is a quality gate
+  expect(result).toCompleteAllTodos();
+});
+```
+
+**vibeWorkflow** signals: "I'm automating a multi-step process"
+```typescript
+vibeWorkflow('PR review', async (wf) => {
+  // Clear: This is a pipeline
+  await wf.stage('lint', { agent, prompt });
+  await wf.stage('test', { agent, prompt });
+});
+```
+
+### 2. Optimized Semantics
+
+Each API provides **only what its use case needs**:
+
+**vibeTest context:**
+- `runAgent` - Execute agent once
+- `expect` - Vitest assertions + custom matchers
+- `judge` - LLM-based evaluation
+- `annotate` - Stream progress to reporters
+- `task` - Access Vitest task metadata
+
+**vibeWorkflow context:**
+- `wf.stage()` - Execute workflow stages
+- `wf.files` - Cumulative file changes across stages
+- `wf.tools` - Cumulative tool calls across stages
+- `wf.timeline` - Unified event timeline
+- `wf.until()` - Loop helper for retries
+
+**No pollution** - Test users don't see `wf.stage()`, workflow users don't see `expect()`.
+
+### 3. Better Documentation
+
+**Separate docs = clearer learning path:**
+
+- New to Vibe Check? Start with [vibeTest tutorial](/getting-started/first-evaluation/)
+- Building pipelines? See [vibeWorkflow guide](/guides/automation/pipelines/)
+
+**Single API would force:**
+- "When to use stage vs runAgent"
+- "Can I use expect in workflows?"
+- "Why doesn't stage work in tests?"
+
+### 4. Different Mental Models
+
+**Evaluation mindset:**
+- Run agent → Assert quality → Pass/fail
+- Single execution, multiple assertions
+- Focus on quality gates
+
+**Automation mindset:**
+- Stage 1 → Stage 2 → Stage 3
+- Sequential execution, cumulative context
+- Focus on orchestration
+
+These are **fundamentally different** mental models. Forcing them into one API would confuse both.
+
+---
+
+## Trade-Offs We Accept
+
+### Two APIs to Learn
+
+**Cost:** Users need to learn both `vibeTest` and `vibeWorkflow`.
+
+**Mitigation:**
+- Clear naming (`Test` vs `Workflow`)
+- Shared primitives (`defineAgent`, `runAgent`, `prompt`)
+- Progressive disclosure (most users start with `vibeTest`)
+
+### Some Code Duplication
+
+**Cost:** Some internal code is duplicated between the two implementations.
+
+**Mitigation:**
+- Shared primitives reduce duplication
+- Cleaner separation makes maintenance easier
+- Small price for better UX
+
+---
+
+## When to Use What
+
+### Use vibeTest when:
+- ✅ Benchmarking models/prompts/tools
+- ✅ Enforcing quality gates (cost, todos, files)
+- ✅ Matrix testing configurations
+- ✅ Writing tests with assertions
+- ✅ Single-run evaluation
+
+### Use vibeWorkflow when:
+- ✅ Multi-stage pipelines
+- ✅ Agent orchestration
+- ✅ Production automation
+- ✅ Passing context between stages
+- ✅ Iterative loops/retries
+
+### Can I use both?
+Yes! They're complementary:
+
+```typescript
+// Workflow for automation
+vibeWorkflow('deploy', async (wf) => {
+  await wf.stage('build', { agent, prompt });
+  await wf.stage('deploy', { agent, prompt });
+});
+
+// Tests for quality gates
+vibeTest('deploy stays under budget', async ({ runAgent, expect }) => {
+  // Same agent config, but evaluated
+  const result = await runAgent({ agent, prompt: '/deploy' });
+  expect(result).toStayUnderCost(5.00);
+});
+```
+
+---
+
+## Examples
+
+### Evaluation (vibeTest)
+```typescript
+import { vibeTest, defineAgent } from '@dao/vibe-check';
+
+vibeTest('security agent uses only safe tools', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: defineAgent({
+      model: 'claude-sonnet-4',
+      tools: ['Read', 'Grep']
+    }),
+    prompt: '/audit src/auth/'
+  });
+
+  expect(result).toUseOnlyTools(['Read', 'Grep']);
+  expect(result).toHaveNoDeletedFiles();
+});
+```
+
+### Automation (vibeWorkflow)
+```typescript
+import { vibeWorkflow, defineAgent } from '@dao/vibe-check';
+
+vibeWorkflow('refactor pipeline', async (wf) => {
+  const analysis = await wf.stage('analyze', {
+    agent: defineAgent({ model: 'claude-sonnet-4' }),
+    prompt: '/analyze codebase'
+  });
+
+  await wf.stage('refactor', {
+    agent: defineAgent({ model: 'claude-opus-4' }),
+    prompt: '/apply fixes',
+    context: analysis  // Pass previous stage result
+  });
+
+  // Access cumulative context
+  console.log(`Changed ${wf.files.count()} files`);
+  console.log(`Used ${wf.tools.count()} tools`);
+});
+```
+
+---
+
+## Inspiration
+
+This dual API pattern is inspired by:
+
+**Playwright:**
+- `test()` for testing
+- `page.route()` for automation
+
+**Vitest:**
+- `test()` for unit tests
+- `bench()` for benchmarking
+
+**Our contribution:**
+- `vibeTest()` for evaluation
+- `vibeWorkflow()` for automation
+
+Different **mental models** deserve different **APIs**.
+
+---
+
+## Conclusion
+
+**The dual API is the right choice** because:
+
+1. **Clearer intent** - Name signals purpose
+2. **Optimized semantics** - Each API tailored to its use case
+3. **Better docs** - Separate learning paths
+4. **Respect mental models** - Evaluation ≠ Automation
+
+The cost (learning two APIs) is **minimal** given the **massive clarity gain**.
+
+---
+
+## Further Reading
+
+- **[vibeTest API](/api/vibetest/)** - Evaluation API reference
+- **[vibeWorkflow API](/api/vibeworkflow/)** - Automation API reference
+- **[Core Concepts](/explanation/core-concepts/)** - Mental models
+
+---
+
+[← Back to Design Decisions](../)

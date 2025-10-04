@@ -1,0 +1,106 @@
+---
+title: Explanation
+description: Understanding how Vibe Check works internally
+sidebar:
+  order: 50
+---
+
+:::tip[💡 Explanation - Understanding-Oriented]
+This section provides **deep conceptual understanding** of how Vibe Check works internally. These docs explain the "why" behind design decisions, architecture patterns, and implementation choices.
+
+**Looking for how to use Vibe Check?** See [Guides](/guides/) for practical how-tos.
+**Looking for API details?** See [API Reference](/api/) for function signatures.
+**New to Vibe Check?** Start with [Getting Started](/getting-started/) tutorials.
+:::
+
+---
+
+:::tip[Who Should Read This?]
+- **Contributors** who need to understand internals to write code
+- **Advanced users** debugging or optimizing their usage
+- **Architects** evaluating Vibe Check for their projects
+- **Curious developers** who want to learn from the design
+:::
+
+---
+
+## Architecture & Design
+
+### [Architecture Overview](/explanation/architecture/)
+
+Technical deep-dive into Vibe Check's internal design:
+- **Capture → Process → Inject** architecture
+- ContextManager class and RunBundle structure
+- Hook integration with Claude Code
+- File change detection and correlation
+- Storage strategy (hybrid disk + thin meta)
+- Vitest integration patterns
+
+**Who needs this:** Contributors, advanced users, system architects
+
+---
+
+## Core Concepts
+
+### [Core Concepts & Mental Models](/explanation/core-concepts/)
+
+Comprehensive guide to understanding how Vibe Check works:
+- **Prompts, Agents, Results** - The execution flow
+- **Auto-Capture System** - How execution context is automatically recorded
+- **Matchers & Judges** - Quality assertions and LLM evaluation
+- **vibeTest vs vibeWorkflow** - When to use each API
+- **Isolation & Sources** - Workspace management and worktrees
+- **Reporting** - Terminal and HTML report generation
+
+---
+
+:::note[Coming Soon]
+Additional deep-dives being written:
+- **Lazy Loading Pattern** - Why and how file content is loaded on-demand
+- **Fixture System** - How Vitest fixtures provide the magic
+- **Matrix Testing** - How Cartesian products generate test combinations
+:::
+
+---
+
+## Design Decisions
+
+### [Design Decisions Hub](/explanation/decisions/)
+
+Explore the "why" behind major architectural choices:
+
+#### [Why Vitest?](/explanation/decisions/why-vitest/)
+Why build on Vitest instead of a custom test runner
+- Battle-tested infrastructure vs reinventing the wheel
+- Trade-offs: learning curve vs ecosystem benefits
+- What we get: parallel execution, watch mode, fixtures, reporters
+
+#### [Dual API Design](/explanation/decisions/dual-api/)
+Why provide both `vibeTest` and `vibeWorkflow`
+- Clear intent: evaluation vs automation
+- Optimized semantics for each use case
+- Trade-offs: two APIs vs mixed concerns
+
+#### [Storage Strategy](/explanation/decisions/storage-strategy/)
+Why use hybrid disk bundles + thin metadata
+- Scalability: handles 100+ file changes per run
+- Memory efficiency: 99% reduction vs all-in-memory
+- Trade-offs: complexity vs scalability
+
+#### [Hook-Based Capture](/explanation/decisions/hook-capture/)
+Why use Claude Code hooks instead of SDK instrumentation
+- Rich events: PreToolUse, notifications, todos, subagents
+- Non-blocking: write temp files, process offline
+- Trade-offs: Claude Code dependency vs complete context
+
+---
+
+## Related Documentation
+
+- **[Contributing](/contributing/)** - How to contribute (process and workflow)
+- **[API Reference](/api/)** - Function signatures and types
+- **[Guides](/guides/)** - How to accomplish specific tasks
+
+---
+
+[← Back to Documentation Home](../)

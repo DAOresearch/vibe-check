@@ -1,0 +1,100 @@
+---
+title: Design Decisions
+description: Key design decisions and trade-offs in Vibe Check
+sidebar:
+  order: 10
+---
+
+This section documents the **"why"** behind major design decisions in Vibe Check. Understanding these decisions helps you:
+
+- Grasp the project's philosophy and constraints
+- Make informed choices when contributing
+- Understand trade-offs and alternatives considered
+
+---
+
+## Key Decisions
+
+### [Why Vitest?](/explanation/decisions/why-vitest/)
+
+**Decision:** Build on Vitest instead of creating a custom test runner.
+
+**Trade-offs:**
+- ✅ Battle-tested infrastructure
+- ✅ Rich ecosystem (reporters, UI, coverage)
+- ✅ Parallel execution, watch mode
+- ❌ Learning curve (fixtures, lifecycle hooks)
+- ❌ Some constraints (no custom CLI)
+
+**Impact:** Faster development, better DX, proven reliability
+
+---
+
+### [Dual API Design](/explanation/decisions/dual-api/)
+
+**Decision:** Provide both `vibeTest` and `vibeWorkflow` instead of a single unified API.
+
+**Trade-offs:**
+- ✅ Each API optimized for its use case
+- ✅ Clear mental model (testing vs automation)
+- ✅ No unnecessary abstractions
+- ❌ Two APIs to learn
+- ❌ Some code duplication
+
+**Impact:** Better ergonomics, clearer intent, easier onboarding
+
+---
+
+### [Storage Strategy](/explanation/decisions/storage-strategy/)
+
+**Decision:** Use hybrid disk bundles + thin metadata instead of all-in-memory or all-on-disk.
+
+**Trade-offs:**
+- ✅ Scales to large file changes (100+ files)
+- ✅ No IPC bottlenecks
+- ✅ Lazy loading keeps memory low
+- ❌ More complex implementation
+- ❌ Disk I/O for large datasets
+
+**Impact:** Handles enterprise-scale runs, minimal memory footprint
+
+---
+
+### [Hook-Based Capture](/explanation/decisions/hook-capture/)
+
+**Decision:** Capture execution context via Claude Code hooks instead of SDK instrumentation or log parsing.
+
+**Trade-offs:**
+- ✅ Access to internal events (PreToolUse, PostToolUse)
+- ✅ Non-blocking capture (write temp files)
+- ✅ Rich context (todos, notifications, subagents)
+- ❌ Requires Claude Code environment
+- ❌ Hook API may change
+
+**Impact:** Auto-capture everything, rich reporting, tight integration
+
+---
+
+## Decision Framework
+
+When making design decisions, we prioritize:
+
+1. **DX-first** - Simple user-facing API hiding complexity
+2. **Auto-capture** - Users never manually manage artifacts
+3. **Vitest-native** - Leverage Vitest infrastructure, don't reinvent
+4. **Scalability** - Handle enterprise-scale runs (100+ file changes, parallel execution)
+5. **Explicitness** - Clear intent over clever abstractions
+
+---
+
+## Decisions Yet to Make
+
+Some decisions are still open:
+
+- **RunBundle cleanup policy** - TTL vs manual cleanup vs auto-purge
+- **Error handling strategy** - Retry logic, fallback mechanisms
+- **Test isolation** - Worktree cleanup timing (immediate vs deferred)
+
+---
+
+[← Back to Explanation](../)

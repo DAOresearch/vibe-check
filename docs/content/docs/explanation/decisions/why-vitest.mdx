@@ -1,0 +1,234 @@
+---
+title: Why Vitest?
+description: Why Vibe Check is built on Vitest instead of a custom test runner
+sidebar:
+  order: 1
+---
+
+## The Decision
+
+**Vibe Check is built on top of Vitest v3, not as a standalone test runner.**
+
+This means:
+- Tests use `vibeTest()` which wraps Vitest's `test()`
+- Fixtures use Vitest's `test.extend()`
+- Reporters extend Vitest's `BaseReporter`
+- Configuration uses `defineVibeConfig()` which wraps Vitest's `defineConfig()`
+
+---
+
+## Why Not Build a Custom Runner?
+
+When building Vibe Check, we considered three approaches:
+
+### Option 1: Custom Test Runner
+Build from scratch with custom CLI, parallel execution, watch mode, etc.
+
+**Pros:**
+- ✅ Full control over features
+- ✅ No constraints from existing framework
+- ✅ Simpler mental model (no Vitest abstractions)
+
+**Cons:**
+- ❌ **Months of development** for basic features (parallel execution, watch mode, filtering)
+- ❌ **Reinventing the wheel** - Vitest solved these problems
+- ❌ **Worse DX** - No ecosystem, no tooling, no UI
+- ❌ **Maintenance burden** - Own the entire testing infrastructure
+
+### Option 2: Thin Wrapper Around Vitest
+Use Vitest under the hood but hide it completely from users.
+
+**Pros:**
+- ✅ Get Vitest features for free
+- ✅ Simple user-facing API
+
+**Cons:**
+- ❌ **Leaky abstractions** - Hard to hide Vitest completely
+- ❌ **Limited extensibility** - Users can't leverage Vitest ecosystem
+- ❌ **Duplication** - Reimplementing concepts Vitest already has
+
+### Option 3: Vitest-Native (CHOSEN)
+Embrace Vitest as the foundation, extend it thoughtfully.
+
+**Pros:**
+- ✅ **Battle-tested infrastructure** - Parallel execution, watch mode, filtering, coverage
+- ✅ **Rich ecosystem** - Reporters, UI, plugins, IDE integrations
+- ✅ **Fast iteration** - Focus on agent-specific features, not test infrastructure
+- ✅ **Extensibility** - Users can use Vitest features directly (describe, beforeEach, etc.)
+- ✅ **Proven reliability** - Used by Nuxt, Remix, SvelteKit, etc.
+
+**Cons:**
+- ❌ Learning curve - Users need to understand some Vitest concepts
+- ❌ Some constraints - Must work within Vitest's design
+
+---
+
+## What We Get From Vitest
+
+By building on Vitest, Vibe Check inherits:
+
+### 1. Parallel Execution
+```typescript
+// Runs tests in parallel across worker threads
+vibeTest('benchmark haiku', async ({ runAgent }) => { /* ... */ });
+vibeTest('benchmark sonnet', async ({ runAgent }) => { /* ... */ });
+vibeTest('benchmark opus', async ({ runAgent }) => { /* ... */ });
+```
+
+### 2. Watch Mode
+```bash
+vitest --watch  # Re-runs tests on file changes
+```
+
+### 3. Filtering
+```bash
+vitest -t "benchmark"        # Run tests matching "benchmark"
+vitest tests/security.test.ts  # Run specific file
+```
+
+### 4. HTML UI
+```bash
+vitest --ui  # Opens browser-based test UI
+```
+
+### 5. Coverage
+```bash
+vitest --coverage  # Generates coverage reports
+```
+
+### 6. Fixtures & Context
+```typescript
+vibeTest('example', async ({ runAgent, expect, judge, annotate }) => {
+  // Fixtures injected by Vitest's test.extend()
+});
+```
+
+### 7. Lifecycle Hooks
+```typescript
+beforeEach(async () => {
+  // Setup before each test
+});
+
+afterEach(async () => {
+  // Cleanup after each test
+});
+```
+
+### 8. Reporters
+```typescript
+export default defineVibeConfig({
+  reporters: [
+    'default',           // Vitest's default reporter
+    'html',              // Vitest's HTML reporter
+    new VibeCostReporter(),  // Our custom reporter
+    new VibeHtmlReporter()   // Our custom reporter
+  ]
+});
+```
+
+---
+
+## Trade-Offs We Accept
+
+### Learning Curve
+Users need to understand:
+- Vitest configuration (`vitest.config.ts`)
+- Fixtures (`test.extend()`)
+- Some Vitest concepts (tasks, workers, reporters)
+
+**Mitigation:** Our docs focus on Vibe Check APIs; Vitest is an implementation detail.
+
+### Constraints
+We must work within Vitest's:
+- Test lifecycle (beforeEach, afterEach, test body)
+- Fixture system (can't change how fixtures work)
+- Reporter API (BaseReporter interface)
+
+**Mitigation:** These constraints are reasonable and align with our goals.
+
+### Version Lock-In
+We're tied to Vitest v3 API surface.
+
+**Mitigation:** Vitest is stable, widely adopted, and committed to backward compatibility.
+
+---
+
+## What This Means for Users
+
+### Good News
+- ✅ **You can use Vitest features directly** - `describe`, `beforeEach`, `--ui`, `--coverage`
+- ✅ **IDE integrations work** - Vitest extensions recognize `vibeTest`
+- ✅ **Familiar DX** - If you know Vitest, you know half of Vibe Check
+- ✅ **Ecosystem access** - Use Vitest plugins, reporters, tooling
+
+### API Simplicity Maintained
+Users primarily interact with:
+- `vibeTest` / `vibeWorkflow` (not raw Vitest `test`)
+- `defineAgent` / `runAgent` / `judge` (agent primitives)
+- Custom matchers (`toHaveChangedFiles`, `toStayUnderCost`)
+
+**You never directly call:**
+- `test.extend()` - We handle fixtures
+- `task.meta` - We hide metadata management
+- Reporter lifecycle hooks - We abstract reporting
+
+---
+
+## Alternative Frameworks Considered
+
+### Why Not Jest?
+- ❌ Slower than Vitest
+- ❌ Worse TypeScript support
+- ❌ No native ESM support
+
+### Why Not Mocha/Chai?
+- ❌ No built-in parallel execution
+- ❌ No fixtures system
+- ❌ Less active development
+
+### Why Not Playwright Test?
+- ✅ Great for browser automation
+- ❌ Not designed for general-purpose testing
+- ❌ Overkill for CLI agent testing
+
+### Why Not Build on Ava?
+- ❌ Smaller ecosystem
+- ❌ Less flexible fixture system
+
+---
+
+## Validation
+
+Vitest has proven itself as the foundation for:
+- **Nuxt** - Full-stack framework
+- **Remix** - React framework
+- **SvelteKit** - Svelte framework
+- **tRPC** - TypeScript RPC framework
+- **Pinia** - Vue state management
+
+These projects trust Vitest for production-critical testing. We can too.
+
+---
+
+## Conclusion
+
+**Building on Vitest was the right choice** because:
+
+1. **Faster time to market** - Ship agent features, not test infrastructure
+2. **Better DX** - Rich ecosystem, IDE support, proven patterns
+3. **Proven reliability** - Battle-tested by major frameworks
+4. **Extensibility** - Users can leverage Vitest ecosystem directly
+
+The constraints (learning curve, version lock-in) are **acceptable** given the massive productivity gains.
+
+---
+
+## Further Reading
+
+- **[Vitest Docs](https://vitest.dev/)** - Official Vitest documentation
+- **[Architecture Overview](/explanation/architecture/)** - How we extend Vitest
+- **[API Reference](/api/)** - Vibe Check's Vitest-based API
+
+---
+
+[← Back to Design Decisions](../)
