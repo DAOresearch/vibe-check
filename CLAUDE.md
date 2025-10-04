@@ -51,12 +51,15 @@ bun run clean:test        # Clean test artifacts
 - Quality gates with assertions
 - Matrix testing configurations
 
-**`vibeWorkflow`** (or `vibePipeline`) - For automation/pipeline use cases
-- Multi-stage agent pipelines
-- Loop/iteration support
-- Production automation
+**`vibeWorkflow`** - For automation/pipeline use cases
+- Multi-stage agent pipelines (`wf.stage()`)
+- Loop/iteration support (`wf.until()` helper)
+- Production automation with cumulative context
+- Access to cross-stage data (files, tools, timeline)
 
-Both share primitives (`defineAgent`, `prompt`, `judge`) but have different semantics.
+**Why "workflow" over "pipeline"?** Better conveys multi-stage orchestration; aligns with automation vocabulary.
+
+Both APIs share primitives (`defineAgent`, `prompt`, `runAgent`, `judge`) but have different semantics tailored to their use cases.
 
 #### 2. Auto-Captured RunContext
 
@@ -102,14 +105,24 @@ Correlate Pre+Post → Populate RunResult → Return to test code
 
 **What users get in test context:**
 ```typescript
-vibeTest('example', async ({ runAgent, judge, expect, task, artifacts, metrics }) => {
+vibeTest('example', async ({ runAgent, judge, expect, task, annotate }) => {
   // runAgent: Execute agent, returns RunResult with auto-populated context
   // judge: LLM-based evaluation with rubrics
   // expect: Vitest expect with custom matchers
   // task: Access to Vitest task metadata
-  // artifacts: Artifact manager for file outputs
-  // metrics: Metrics tracker for aggregation
+  // annotate: Stream annotations to reporters (tool starts, todo updates)
 });
+```
+
+**Full VibeTestContext signature:**
+```typescript
+type VibeTestContext = {
+  runAgent(opts: RunAgentOptions): Promise<RunResult>;
+  judge(res: RunResult, opts: { rubric: Rubric; throwOnFail?: boolean }): Promise<JudgeResult>;
+  expect: typeof import('vitest')['expect'];
+  annotate(message: string, type?: string, attachment?: TestAttachment): Promise<void>;
+  task: import('vitest').TestContext['task'];
+};
 ```
 
 **Implementation:** Uses `test.extend` to inject fixtures, hiding all Vitest plumbing from users.
@@ -117,25 +130,37 @@ vibeTest('example', async ({ runAgent, judge, expect, task, artifacts, metrics }
 #### 5. Custom Matchers
 
 Shipped matchers for common assertions:
-- `toStayUnderCost(maxUsd)` - Enforce cost budgets
+
+**File-based matchers:**
+- `toHaveChangedFiles(paths)` - Verify specific files changed (glob support)
+- `toHaveNoDeletedFiles()` - Ensure no files were deleted
+
+**Tool-based matchers:**
+- `toHaveUsedTool(name, opts?)` - Check specific tool usage with optional min count
+- `toUseOnlyTools(allowlist)` - Validate only allowed tools were used
+
+**Quality matchers:**
 - `toCompleteAllTodos()` - Verify all TODOs completed
-- `toUseOnlyTools(allowlist)` - Validate tool usage
 - `toHaveNoErrorsInLogs()` - Check for errors in logs
 - `toPassRubric(rubric)` - LLM-based quality evaluation
-- `toHaveChangedFiles(paths)` - Verify file changes
-- `toHaveUsedTool(name)` - Check specific tool usage
+
+**Cost matchers:**
+- `toStayUnderCost(maxUsd)` - Enforce cost budgets
 
 **Access patterns for file changes:**
 ```typescript
 const result = await runAgent({ ... });
 
-// Access before/after content (not raw diffs - those are for reporters)
-const file = result.getFileChange("src/index.ts");
-expect(file.before).toContain("old code");
-expect(file.after).toContain("new code");
+// Lazy file access API
+const file = result.files.get("src/index.ts");
+const beforeText = await file?.before?.text();  // Lazy load
+const afterText = await file?.after?.text();
+expect(beforeText).toContain("old code");
+expect(afterText).toContain("new code");
 
-// Matchers use the auto-captured context
+// Or use matchers that access auto-captured context
 expect(result).toHaveChangedFiles(["src/index.ts"]);
+expect(result.files.stats()).toEqual({ added: 1, modified: 2, deleted: 0, renamed: 0, total: 3 });
 ```
 
 #### 6. Reporter System
@@ -173,25 +198,31 @@ defineTestSuite({
 });
 ```
 
-#### 8. Workspace Context Design (Open Question)
+#### 8. Workspace Context Design
 
-**Where should git workspace/project be specified?**
+**Decision**: ✅ Both with override (default at workflow level, override at runAgent)
 
-Current thinking: On agent definition
-```typescript
-const builder = defineAgent({
-  source: { type: 'git', repo: '/path/to/repo' }
-});
-```
+**Rationale**: Most pipelines share one workspace, but some stages use a different repo (e.g., docs site). Mirrors Vitest's "projects + injected defaults" pattern.
 
-Alternative: On test/pipeline level
-```typescript
-vibeWorkflow('deploy', { workspace: '/path/to/repo' }, async ({ runAgent }) => {
-  // All agents inherit workspace
-});
-```
+**Implementation**:
+- **Default at suite/workflow level**:
+  ```typescript
+  vibeWorkflow('deploy', async (wf) => {
+    // All stages inherit workspace from workflow defaults
+  }, { defaults: { workspace: '/path/to/repo' } });
+  ```
 
-**To be decided:** Research needed on whether workspace should be agent-level, test-level, or support both with override capability.
+- **Override at call site** (for multi-repo workflows):
+  ```typescript
+  vibeWorkflow('deploy', async (wf) => {
+    await wf.stage('build app', { agent: builder, prompt: '/build' });
+    await wf.stage('deploy docs', {
+      agent: deployer,
+      prompt: '/deploy',
+      workspace: '/path/to/docs-repo'  // Override for this stage
+    });
+  }, { defaults: { workspace: '/path/to/app-repo' } });
+  ```
 
 ## Project Structure
 
@@ -302,10 +333,15 @@ Research from `deep-research-report.md` has answered most critical questions:
 6. ✅ **Loop patterns** - `until()` helper in `vibeWorkflow` context (see report Part 7.3)
 7. ✅ **API naming** - **`vibeWorkflow`** chosen over `vibePipeline` (see report Part 7.3)
 
-**Still pending implementation:**
-- RunBundle cleanup/retention policy
-- Test strategy for ContextManager
-- Error handling patterns for hook capture failures
+**Implementation Status:**
+- ✅ All critical design decisions finalized (see `.claude/docs/vibecheck/finalized-decisions.md`)
+- ✅ Documentation complete for user-facing APIs
+- 🚧 Implementation in progress (see implementation-plan.mdx for roadmap)
+
+**Still to decide (implementation details):**
+- RunBundle cleanup/retention policy (TTL vs manual cleanup)
+- Test strategy for ContextManager (unit vs integration)
+- Error handling patterns for hook capture failures (retry, fallback, logging)
 
 ## Working with Claude Code Hooks
 

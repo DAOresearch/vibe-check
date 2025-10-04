@@ -3,6 +3,15 @@ title: "Implementation Plan"
 description: "End-to-end implementation plan for @dao/vibe-check"
 ---
 
+> **✅ UPDATED:** This plan now reflects all finalized API decisions from `finalized-decisions.md`
+>
+> **Key changes:**
+> - Added `vibeWorkflow` API (Section 2)
+> - Updated `RunResult` interface with complete lazy-loading API (Section 18.1)
+> - Replaced `ArtifactManager`/`MetricsTracker` with `ContextManager` (Section 6)
+> - Updated matrix testing to reference `test.for` (Section 9)
+> - Added hybrid disk bundle storage strategy (Section 6)
+
 Below is a concrete, end‑to‑end implementation plan for @dao/vibe-check, turning your research into shippable code. It's organized as milestones with work items, APIs, skeletons, test strategy, and acceptance criteria. I highlight trade‑offs where they matter.
 
 ---
@@ -100,7 +109,14 @@ Below is a concrete, end‑to‑end implementation plan for @dao/vibe-check, tur
 
 ---
 
-## 2) vibeTest fixtures & context
+## 2) vibeTest & vibeWorkflow - Dual API
+
+### Overview
+
+**Finalized Decision:** Two separate APIs with different semantics (see `finalized-decisions.md` Part 1.1)
+
+- **`vibeTest`** - For evaluation/testing use cases (benchmarking, quality gates, matrix testing)
+- **`vibeWorkflow`** - For automation/pipeline use cases (multi-stage, loops, production workflows)
 
 ### Work items
 
@@ -108,11 +124,42 @@ Below is a concrete, end‑to‑end implementation plan for @dao/vibe-check, tur
 
 ```typescript
 // src/test/context.ts
+
+/** Context for vibeTest - evaluation/testing */
 export interface VibeTestContext {
-  runAgent?: RunAgentFn;
-  judge?: JudgeFn;
-  artifacts?: ArtifactManager;
-  metrics?: MetricsTracker;
+  runAgent(opts: RunAgentOptions): Promise<RunResult>;
+  judge(res: RunResult, opts: { rubric: Rubric; throwOnFail?: boolean }): Promise<JudgeResult>;
+  expect: typeof import('vitest')['expect'];
+  annotate(message: string, type?: string, attachment?: TestAttachment): Promise<void>;
+  task: import('vitest').TestContext['task'];
+}
+
+/** Context for vibeWorkflow - automation/pipelines */
+export interface WorkflowContext {
+  /** Run one stage, returns RunResult and accumulates into workflow */
+  stage(name: string, opts: RunAgentOptions): Promise<RunResult>;
+
+  /** Access cumulative state across stages */
+  files: {
+    allChanged(): FileChange[];
+    byStage(stage?: string): FileChange[];
+  };
+  tools: {
+    all(): Array<{ stage: string; call: ToolCall }>;
+  };
+  timeline: {
+    events(): AsyncIterable<{ stage: string; evt: TimelineEvent }>;
+  };
+
+  /** Loop helpers */
+  until(
+    predicate: (latest: RunResult) => boolean | Promise<boolean>,
+    body: () => Promise<RunResult>,
+    opts?: { maxIterations?: number }
+  ): Promise<RunResult[]>;
+
+  /** Default workspace & model overrides for this workflow */
+  defaults: { workspace?: string; model?: string };
 }
 
 declare module 'vitest' {
@@ -126,32 +173,30 @@ declare module 'vitest' {
 ```typescript
 // src/test/vibeTest.ts
 import { test as base } from 'vitest';
-import { AgentRunner } from '../runner/agentRunner';
-import { ArtifactManager } from '../artifacts/ArtifactManager';
-import { MetricsTracker } from '../metrics/MetricsTracker';
+import { ContextManager } from '../runner/ContextManager';
 import { createJudge } from '../judge/llmJudge';
 
-export const vibeTest = base.extend<{
-  runAgent: RunAgentFn;
-  judge: JudgeFn;
-  artifacts: ArtifactManager;
-  metrics: MetricsTracker;
-}>({
-  artifacts: async ({}, use) => {
-    const mgr = new ArtifactManager();
-    await use(mgr);
-    await mgr.flush();
-  },
+export const vibeTest = base.extend<VibeTestContext>({
+  runAgent: async ({ task }, use) => {
+    const ctx = new ContextManager({
+      testId: task.id,
+      workspace: undefined,  // Uses default or override
+      annotate: task.context?.annotate
+    });
 
-  metrics: async ({}, use) => {
-    const m = new MetricsTracker();
-    await use(m);
-  },
+    await use(async (opts: RunAgentOptions) => {
+      // Execute agent with SDK, capture hooks, finalize context
+      const result = await ctx.runAgent(opts);
 
-  runAgent: async ({ artifacts, metrics, task }, use) => {
-    const runner = new AgentRunner({ artifacts, metrics, testId: task.id });
-    await use(runner.run.bind(runner));
-    await runner.cleanup();
+      // Store thin meta for reporters
+      task.meta.metrics = result.metrics;
+      task.meta.bundleDir = result.bundleDir;
+
+      return result;
+    });
+
+    // Cleanup (if needed)
+    await ctx.cleanup?.();
   },
 
   judge: async ({}, use) => {
@@ -159,9 +204,37 @@ export const vibeTest = base.extend<{
     await use(j.evaluate.bind(j));
   },
 });
+
+// src/test/vibeWorkflow.ts
+import { test as base } from 'vitest';
+import { WorkflowRunner } from '../runner/WorkflowRunner';
+
+export function vibeWorkflow(
+  name: string,
+  fn: (ctx: WorkflowContext) => Promise<void>,
+  options?: {
+    timeout?: number;
+    defaults?: { workspace?: string; model?: string }
+  }
+): void {
+  base(name, async ({ task }) => {
+    const wf = new WorkflowRunner({
+      testId: task.id,
+      defaults: options?.defaults,
+      annotate: task.context?.annotate
+    });
+
+    await fn(wf.context);
+
+    // Store cumulative meta
+    task.meta.metrics = wf.getCumulativeMetrics();
+    task.meta.bundleDir = wf.bundleDir;
+  }, options?.timeout);
+}
 ```
 
 - This leverages Vitest's fixture model, smart init, generics typing, and scoped values.
+- **Key change:** Uses `ContextManager` instead of separate `ArtifactManager` + `MetricsTracker` (see finalized-decisions.md Part 2.2)
 
 **3. Modifiers & concurrency**
 
@@ -255,12 +328,79 @@ expect.extend({
 
 ---
 
-## 6) Agent runner (Claude SDK)
+## 6) Agent runner & ContextManager
+
+### Overview
+
+**Architecture (from finalized-decisions.md Part 2):**
+- **ContextManager** - Manages RunContext lifecycle (capture → process → inject)
+- **AgentRunner** - Executes Claude SDK, captures hooks, returns RunResult
+- **Storage** - Hybrid disk bundle (canonical) + thin task.meta (pointers)
 
 ### Work items
-- Implement AgentRunner to:
+
+**1. ContextManager class**
+
+Manages the complete lifecycle of execution context capture and finalization.
+
+```typescript
+// src/runner/ContextManager.ts
+export class ContextManager {
+  constructor(private opts: {
+    testId: string;
+    workspace?: string;
+    annotate?: (m: string, t?: string, a?: any) => Promise<void>
+  }) {}
+
+  // Canonical on-disk "bundle" for this test
+  public readonly bundleDir = path.join('.vibe-artifacts', sanitize(this.opts.testId));
+
+  // In-memory light summary, persisted to summary.json in finalize()
+  private summary: Summary = initSummary();
+
+  // Writer handles (append-only)
+  private evtWriter = createNDJSONWriter(path.join(this.bundleDir, 'events.ndjson'));
+  private hookWriter = createNDJSONWriter(path.join(this.bundleDir, 'hooks.ndjson'));
+
+  async onSDKEvent(evt: SDKEvent) {
+    // called from runAgent's for-await loop
+    await this.evtWriter.write(evt);
+    accumulateMetrics(this.summary.metrics, evt);
+    // stream DX breadcrumbs
+    if (isTodoUpdate(evt)) await this.opts.annotate?.(`TODOs: ${briefTodos(evt)}`, 'todo');
+    if (isTool(evt)) await this.opts.annotate?.(`Tool: ${toolLabel(evt)}`, 'tool');
+  }
+
+  async onHookPayload(json: unknown) {
+    // invoked by tiny hook-runner (writes hook JSONL)
+    await this.hookWriter.write(json);
+  }
+
+  async finalize(): Promise<RunResult> {
+    // correlate hooks -> toolCalls, compute file changes, write summary.json
+    const hooks = await readNDJSON(path.join(this.bundleDir, 'hooks.ndjson'));
+    const { toolCalls, fileChanges } = correlateAndDiff(hooks, this.opts.workspace);
+    this.summary.toolCalls = toolCalls.map(minimizeForSummary);
+    this.summary.fileStats = statsFor(fileChanges);
+
+    await fs.writeFile(
+      path.join(this.bundleDir, 'summary.json'),
+      JSON.stringify(this.summary, null, 2)
+    );
+    return makeLazyRunResult({
+      bundleDir: this.bundleDir,
+      summary: this.summary,
+      annotate: this.opts.annotate
+    });
+  }
+}
+```
+
+**2. AgentRunner integration**
+
+Implement AgentRunner to:
   - Start streaming session (query), attach hooks, respect timeout/turn caps.
-  - Track messages, tool uses, todos, usage/tokens/cost, artifacts.
+  - Track messages, tool uses, todos, usage/tokens/cost via ContextManager.
   - Accept allowed tools, MCP (in-process or external), system prompt preset + append.
   - Emit annotations for key events (tools, todo progress) to enrich reporters.
 
@@ -383,14 +523,16 @@ export class VibeCostReporter extends BaseReporter implements Reporter {
 ## 9) Matrix generation
 
 ### Work items
-- Provide `defineTestSuite({ matrix, test })` that expands to N vibeTest calls (no reliance on a hypothetical test.for; use test.each internally or a plain loop).
-- Note: Vitest v3 docs don't have test.for; use test.each or direct iteration.
+- Provide `defineTestSuite({ matrix, test })` that expands to N vibeTest calls
+- **Recommendation (from finalized-decisions.md Part 3.2):** Use `test.for` for better fixture integration
+- Fallback: Use `test.each` or direct iteration for simpler cases
 
 ```typescript
 // src/matrix/defineTestSuite.ts
 import { describe } from 'vitest';
 import { vibeTest } from './vibeTest';
 
+// Recommended: Use test.for for better integration with TestContext
 export function defineTestSuite<T extends Record<string, any[]>>(cfg: {
   matrix: T;
   name?: string;
@@ -401,7 +543,15 @@ export function defineTestSuite<T extends Record<string, any[]>>(cfg: {
     for (const c of combos) cfg.test(c as any);
   });
 }
+
+// Alternative using test.for (Vitest v3+)
+// test.for([{ model: 'sonnet' }, { model: 'opus' }])(
+//   'benchmark $model',
+//   async ({ runAgent, model }) => { ... }
+// )
 ```
+
+**Why `test.for` is better:** Integrates with TestContext and fixtures, provides better type safety (see finalized-decisions.md Part 3.2)
 
 ### Acceptance
 - Passing a 2×2×2 matrix yields 8 tests with readable names.
@@ -537,28 +687,145 @@ export type { VibeTestContext, RunResult, AgentConfig } from './types';
 
 ### 18.1 Types (selected)
 
+**IMPORTANT:** See `finalized-decisions.md` Part 1.2 for the complete, authoritative RunResult interface.
+
 ```typescript
 // src/types.ts
-export interface RunMetrics {
-  totalTokens?: number;
-  totalCostUsd?: number;
+
+/** Complete RunResult interface with lazy loading (see finalized-decisions.md Part 1.2) */
+export interface RunResult {
+  /** Absolute path to the on-disk bundle (source of truth) */
+  readonly bundleDir: string;
+
+  /** High-level metrics (merged SDK usage + wall time) */
+  readonly metrics: {
+    totalTokens?: number;
+    totalCostUsd?: number;
+    durationMs?: number;
+    toolCalls?: number;
+    filesChanged?: number;
+  };
+
+  /** Conversation messages (assistant/user/tool), small, summarized */
+  readonly messages: Array<{
+    role: 'system' | 'user' | 'assistant' | 'tool';
+    summary: string;              // first 120 chars or structured title
+    ts: number;
+    /** Load full content from bundle on demand */
+    load(): Promise<unknown>;
+  }>;
+
+  /** Todos recorded by SDK stream, with status at end of run */
+  readonly todos: Array<{
+    text: string;
+    status: 'pending' | 'in_progress' | 'completed'
+  }>;
+
+  /** Git state before/after if workspace is git-managed */
+  readonly git: {
+    before?: { head: string; dirty: boolean };
+    after?: { head: string; dirty: boolean };
+    changedCount: number;
+    /** Raw `git diff --name-status` as parsed entries */
+    diffSummary(): Promise<Array<{
+      path: string;
+      change: 'A' | 'M' | 'D' | 'R';
+      oldPath?: string
+    }>>;
+  };
+
+  /** File changes correlated from hooks + git; content loaded lazily */
+  readonly files: {
+    /** All changed files as structured objects */
+    changed(): FileChange[];
+    /** Fast lookup */
+    get(path: string): FileChange | undefined;
+    /** Glob filter */
+    filter(glob: string | string[]): FileChange[];
+    /** Counts and quick stats */
+    stats(): {
+      added: number;
+      modified: number;
+      deleted: number;
+      renamed: number;
+      total: number
+    };
+  };
+
+  /** Tool calls correlated from PreToolUse/PostToolUse */
+  readonly tools: {
+    all(): ToolCall[];
+    used(name: string): number;  // count
+    findFirst(name: string): ToolCall | undefined;
+  };
+
+  /** Unified timeline (SDK + hooks); reporters iterate to render */
+  readonly timeline: {
+    events(): AsyncIterable<TimelineEvent | TimelineEvent[]>; // supports batching
+  };
+
+  /** Convenience: annotate from user tests if desired (forwarded) */
+  annotate?(
+    message: string,
+    type?: string,
+    attachment?: {
+      path?: string;
+      body?: string | Buffer;
+      contentType?: string
+    }
+  ): Promise<void>;
+}
+
+/** One changed file with safe, lazy content access */
+export interface FileChange {
+  path: string;
+  changeType: 'added' | 'modified' | 'deleted' | 'renamed';
+  oldPath?: string;
+
+  before?: {
+    sha256: string;
+    size: number;
+    text(): Promise<string>;
+    stream(): NodeJS.ReadableStream;
+  };
+
+  after?: {
+    sha256: string;
+    size: number;
+    text(): Promise<string>;
+    stream(): NodeJS.ReadableStream;
+  };
+
+  stats?: { added: number; deleted: number; chunks: number };
+  patch(format?: 'unified' | 'json'): Promise<string | object>;
+}
+
+export interface ToolCall {
+  name: string;
+  input: unknown;
+  output?: unknown;
+  ok: boolean;
+  cwd?: string;
+  startedAt: number;
+  endedAt?: number;
   durationMs?: number;
+  raw?: { preHookOffset: number; postHookOffset?: number };
 }
-export interface ToolCallRecord {
-  name: string; input: unknown; output?: unknown; ok: boolean; startedAt: number; endedAt?: number;
-}
-export interface StructuredRunData {
-  messages: AgentMessage[];
-  toolCalls: ToolCallRecord[];
-  todos: { text: string; status: 'pending'|'in_progress'|'completed' }[];
-  metrics: RunMetrics;
-  artifacts: string[]; // file paths
-}
-export interface RunResult extends StructuredRunData {}
+
+export type TimelineEvent =
+  | { type: 'sdk-message'; role: 'assistant' | 'user' | 'tool'; ts: number; ref?: number }
+  | { type: 'hook'; name: 'PreToolUse' | 'PostToolUse' | 'Notification' | 'Stop' | 'SubagentStop' | 'SessionStart' | 'SessionEnd'; ts: number; ref?: number }
+  | { type: 'todo'; ts: number; items: Array<{ text: string; status: string }> };
 
 export type RunAgentFn = (input: {
-  prompt: string; model?: string; allowedTools?: string[]; mcpServers?: Record<string, any>;
-  timeoutMs?: number; maxTurns?: number; systemPrompt?: { preset?: string; append?: string };
+  prompt: string;
+  model?: string;
+  allowedTools?: string[];
+  mcpServers?: Record<string, any>;
+  timeoutMs?: number;
+  maxTurns?: number;
+  systemPrompt?: { preset?: string; append?: string };
+  workspace?: string;  // Override default workspace
 }) => Promise<RunResult>;
 
 export type JudgeFn = (result: RunResult, opts: { rubric: Rubric; throwOnFail?: boolean }) => Promise<JudgeResult>;
