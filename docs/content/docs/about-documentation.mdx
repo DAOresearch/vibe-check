@@ -1,0 +1,178 @@
+---
+title: About This Documentation
+description: How this documentation is organized using the Diátaxis framework
+sidebar:
+  order: 100
+---
+
+This documentation follows the **[Diátaxis framework](https://diataxis.fr/)**, a systematic approach to organizing technical documentation that makes it easier for you to find exactly what you need.
+
+## The Four Types of Documentation
+
+Diátaxis divides documentation into four distinct types, each serving a specific need:
+
+```
+                    PRACTICAL STEPS          THEORETICAL KNOWLEDGE
+                    ───────────────          ───────────────────
+LEARNING        │   📚 TUTORIALS          │   💡 EXPLANATION
+(Acquisition)   │   Learning-oriented     │   Understanding-oriented
+                │   "Take me by hand"     │   "Help me understand"
+                │                         │
+────────────────┼─────────────────────────┼──────────────────────
+WORKING         │   📖 HOW-TO GUIDES     │   📋 REFERENCE
+(Application)   │   Problem-oriented      │   Information-oriented
+                │   "Show me how"         │   "Tell me facts"
+```
+
+---
+
+## 📚 Tutorials (Learning-Oriented)
+
+**When you're learning and need guided practice.**
+
+Tutorials are step-by-step lessons that teach you by doing. They're designed for beginners and provide a safe, controlled learning environment.
+
+### In Vibe Check:
+- **[Getting Started](/getting-started/)** - Installation, first automation, first evaluation
+- **[Quick Start](/getting-started/quick-start/)** - Your first working example
+- **[First Automation](/getting-started/first-automation/)** - Build a pipeline step-by-step
+- **[First Evaluation](/getting-started/first-evaluation/)** - Benchmark models step-by-step
+
+**Characteristics:**
+- ✅ Complete, working examples
+- ✅ Step-by-step instructions
+- ✅ Expected outcomes at each step
+- ✅ Safe to experiment
+- ❌ Not for solving specific problems (see How-To Guides)
+
+---
+
+## 📖 How-To Guides (Problem-Oriented)
+
+**When you have a specific problem to solve.**
+
+How-to guides are practical recipes that assume you have baseline knowledge and help you accomplish specific tasks.
+
+### In Vibe Check:
+- **[Guides](/guides/)** - Organized by topic (automation, evaluation, agents, advanced)
+- **[Recipes](/recipes/)** - Copy-paste patterns for common scenarios
+
+**Example guides:**
+- [Building Pipelines](/guides/automation/pipelines/) - Chain agents and pass artifacts
+- [Model Benchmarking](/guides/evaluation/benchmarking/) - Compare model performance
+- [Agent Configuration](/guides/agents/configuration/) - Configure models, tools, sources
+
+**Characteristics:**
+- ✅ Goal-oriented
+- ✅ Assumes familiarity with basics
+- ✅ Focused on the task, not explanation
+- ✅ Multiple approaches when relevant
+- ❌ Not for learning fundamentals (see Tutorials)
+
+---
+
+## 📋 Reference (Information-Oriented)
+
+**When you need accurate technical facts.**
+
+Reference documentation provides precise, comprehensive information about functions, types, and configurations. It's dry, factual, and organized for quick lookup.
+
+### In Vibe Check:
+- **[API Reference](/api/)** - Complete TypeScript reference
+  - [vibeTest](/api/vibetest/) - Test function signatures
+  - [vibeWorkflow](/api/vibeworkflow/) - Workflow function signatures
+  - [defineAgent](/api/defineagent/) - Agent configuration spec
+  - [Matchers](/api/matchers/) - All custom matchers
+  - [Types](/api/types/) - Complete type definitions
+
+**Characteristics:**
+- ✅ Comprehensive and accurate
+- ✅ Structured for lookup
+- ✅ Technical precision
+- ✅ No interpretation or explanation
+- ❌ Not for understanding concepts (see Explanation)
+
+---
+
+## 💡 Explanation (Understanding-Oriented)
+
+**When you want to understand "why" and "how it works."**
+
+Explanation documentation provides background, context, and deeper understanding. It helps you move from working familiarity to deep comprehension.
+
+### In Vibe Check:
+- **[Explanation](/explanation/)** - Architecture and design
+  - [Architecture Overview](/explanation/architecture/) - How Vibe Check works internally
+  - Mental models (auto-capture, lazy loading, fixtures)
+  - Design decisions (why Vitest, dual API, storage strategy)
+  - Comparisons (when to use vibeTest vs vibeWorkflow)
+
+**Characteristics:**
+- ✅ Conceptual understanding
+- ✅ Background and context
+- ✅ Examples and comparisons
+- ✅ Discussion of alternatives
+- ❌ Not a tutorial (see Tutorials)
+- ❌ Not a how-to (see Guides)
+
+---
+
+## How to Use This Documentation
+
+### I'm brand new to Vibe Check
+**Start here:** [Getting Started](/getting-started/) → Work through tutorials in order
+
+### I have a specific task to accomplish
+**Start here:** [Guides](/guides/) → Find the guide matching your goal
+
+### I need to look up a function signature
+**Start here:** [API Reference](/api/) → Search for the function name
+
+### I want to understand how Vibe Check works
+**Start here:** [Explanation](/explanation/) → Read architecture and design docs
+
+### I want working code to copy
+**Start here:** [Recipes](/recipes/) or [Examples](/examples/)
+
+---
+
+## Why Diátaxis?
+
+The Diátaxis framework solves a common problem: **different users need different things from documentation.**
+
+- **New users** need hand-holding tutorials
+- **Working users** need problem-solving guides
+- **All users** need accurate reference material
+- **Advanced users** need deep explanations
+
+By separating these into distinct sections, you can:
+1. **Find information faster** - Know exactly where to look
+2. **Get the right level of detail** - No too-simple guides in reference, no too-complex explanations in tutorials
+3. **Learn progressively** - Start with tutorials, graduate to guides, reference as needed
+
+---
+
+## Contributing to Documentation
+
+When adding documentation:
+
+1. **Identify the type** - Is this a tutorial, guide, reference, or explanation?
+2. **Place it correctly** - Add to the appropriate section
+3. **Follow the style** - Match the characteristics of that documentation type
+4. **Cross-link wisely** - Link to other quadrants when users need to jump
+
+**Example:**
+- Tutorial mentions a concept? → Link to Explanation
+- Explanation shows a pattern? → Link to How-To Guide
+- How-To Guide uses a function? → Link to Reference
+
+---
+
+## Further Reading
+
+- **[Diátaxis official site](https://diataxis.fr/)** - Full framework documentation
+- **[Contributing Guide](/contributing/)** - How to contribute to Vibe Check docs
+
+---
+
+[← Back to Documentation Home](/)
