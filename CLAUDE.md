@@ -20,9 +20,24 @@ bun run typecheck         # Run TypeScript type checking
 bun run check             # Run both lint and typecheck
 ```
 
+### Documentation
+```bash
+bun run docs:dev          # Start documentation dev server (http://localhost:4321)
+bun run docs:build        # Build documentation for production
+bun run docs:preview      # Preview production build locally
+bun run docs:check        # Check documentation for errors (TypeScript, MDX)
+```
+
+**Documentation Structure:**
+- **Technology:** Astro Starlight with Ion theme
+- **Framework:** Diátaxis (Tutorials, How-To Guides, Reference, Explanation)
+- **Location:** `docs/content/docs/` (MDX files with frontmatter)
+- **Navigation:** Automatic sidebar generation from directory structure
+- **See:** `docs/README.md` for complete documentation guide
+
 ### Running Code
 ```bash
-bun run dev               # Run src/index.tsx
+bun run dev               # Run src/index.ts
 bun run clean:dev         # Clean .dev directory
 bun run clean:test        # Clean test artifacts
 ```

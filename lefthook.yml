@@ -1,7 +1,7 @@
 pre-commit:
   jobs:
     - run: bun x ultracite fix
-      glob: 
+      glob:
         - "*.js"
         - "*.jsx"
         - "*.ts"
@@ -10,3 +10,10 @@ pre-commit:
         - "*.jsonc"
         - "*.css"
       stage_fixed: true
+
+    - name: Check documentation
+      run: bun run docs:check
+      glob:
+        - "docs/**/*.{md,mdx}"
+        - "astro.config.mjs"
+      fail_text: "Documentation check failed. Run 'bun run docs:check' to see errors."
