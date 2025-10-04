@@ -177,24 +177,24 @@ jobs:
             });
 
             // Notify user with error details
-            const workflowUrl = '${{ github.server_url }}' + '/' + '${{ github.repository }}' + '/actions/runs/' + '${{ github.run_id }}';
-
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: ${{ github.event.issue.number }},
-              body: `❌ **PRD Implementation Failed**
-
-**Workflow Run:** ${workflowUrl}
-
-The implementation encountered an error. Please check the workflow logs above for details.
-
-**Next Steps:**
-1. Review error logs in the workflow run
-2. Fix any blockers or issues
-3. Remove \`prd:blocked\` label
-4. Add \`prd:ready\` label back
-5. Comment \`@claude implement\` to retry
-
-This issue has been automatically labeled as \`prd:blocked\` to prevent further implementation attempts until resolved.`
+              body: [
+                '❌ **PRD Implementation Failed**',
+                '',
+                '**Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}',
+                '',
+                'The implementation encountered an error. Please check the workflow logs above for details.',
+                '',
+                '**Next Steps:**',
+                '1. Review error logs in the workflow run',
+                '2. Fix any blockers or issues',
+                '3. Remove `prd:blocked` label',
+                '4. Add `prd:ready` label back',
+                '5. Comment `@claude implement` to retry',
+                '',
+                'This issue has been automatically labeled as `prd:blocked` to prevent further implementation attempts until resolved.'
+              ].join('\n')
             });
