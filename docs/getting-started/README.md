@@ -9,12 +9,45 @@
 Choose your path based on what you want to accomplish:
 
 ### Path 1: Automation
-Build agent pipelines that run multi-step workflows and capture artifacts.
+
+Build multi-stage agent pipelines with `vibeWorkflow`:
+
+```typescript
+import { vibeWorkflow, defineAgent } from '@dao/vibe-check';
+
+vibeWorkflow('refactor pipeline', async (wf) => {
+  const analysis = await wf.stage('analyze', {
+    agent: defineAgent({ model: 'claude-sonnet-4' }),
+    prompt: '/analyze codebase'
+  });
+
+  await wf.stage('fix', {
+    agent: defineAgent({ model: 'claude-opus-4' }),
+    prompt: '/apply fixes',
+    context: analysis
+  });
+});
+```
 
 **Start here:** [First Automation Tutorial](./first-automation.md)
 
 ### Path 2: Evaluation
-Benchmark models and configurations with matrix testing and quality gates.
+
+Benchmark models and enforce quality gates with `vibeTest`:
+
+```typescript
+import { vibeTest, defineAgent } from '@dao/vibe-check';
+
+vibeTest('benchmark sonnet', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: defineAgent({ model: 'claude-sonnet-4' }),
+    prompt: '/refactor src/'
+  });
+
+  expect(result).toStayUnderCost(3.00);
+  expect(result).toCompleteAllTodos();
+});
+```
 
 **Start here:** [First Evaluation Tutorial](./first-evaluation.md)
 
