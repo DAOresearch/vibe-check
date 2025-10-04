@@ -227,7 +227,7 @@ const evaluation = await judge(result, { rubric: qualityRubric });
 
 * **Canonical on disk**: all raw events and file contents live under **RunBundle** (content-addressed).
 * **Lazy accessors**: `result.files.*.text()` streams from disk on demand.
-* **Size guards**: If a single file exceeds N MB, store gzipped; the accessor decompresses transparently and matchers should default to **sampled diff** unless `.full()` is requested.
+* **Size guards**: If a single file exceeds **10MB**, store gzipped; the accessor decompresses transparently and matchers should default to **sampled diff** unless `.full()` is requested.
 * **Meta stays tiny**: only counts + hashes + paths. (Fits Vitest meta rules.) ([Vitest][2])
 
 ### 2.7 Vitest lifecycle: sequence diagram (text)
@@ -720,8 +720,14 @@ let buf = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', c => (buf += c));
 process.stdin.on('end', async () => {
-  // Write one sanitized line (trailing newline ensures NDJSON)
-  out.write(buf.trim().replace(/\n/g, '\\n') + '\n');
+  // Parse and re-stringify to ensure single-line NDJSON (handles embedded newlines)
+  try {
+    const json = JSON.parse(buf.trim());
+    out.write(JSON.stringify(json) + '\n');
+  } catch (error) {
+    // Fallback: write as-is if not valid JSON
+    out.write(buf.trim() + '\n');
+  }
   out.end();
 });
 ```

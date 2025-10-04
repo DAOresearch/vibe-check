@@ -71,13 +71,15 @@ Both share primitives (`defineAgent`, `prompt`, `judge`) but have different sema
 **Implementation:**
 1. During agent run: Write hook events to small temp files (non-blocking)
 2. After run completes: Process hook files, correlate events, extract data
-3. Inject into Vitest flow: Store in `task.meta` or fixture (TBD by research)
+3. Inject into Vitest flow: Store using **Hybrid approach** (decided by research)
 4. Make accessible: Test code gets `RunResult`, reporters get via `test.meta`
 
-**Storage Strategy (To Be Determined):**
-- Option A: `task.meta` (Vitest native, reporter access)
-- Option B: Fixture state (full control, no serialization limits)
-- Option C: Hybrid approach
+**Storage Strategy (Decided):**
+**Hybrid disk bundle + thin meta** - The disk RunBundle is the canonical source of truth; `RunResult` provides lazy accessors; `task.meta` carries only summaries and `bundleDir` pointer. This approach:
+- Scales to large data (100+ file changes)
+- Reporters read artifacts from disk (no IPC overhead)
+- Test code gets ergonomic lazy API (no memory bloat)
+- See `deep-research-report.md` Part 2.4 for full rationale
 
 #### 3. Claude Code Hooks Integration
 
@@ -287,19 +289,23 @@ The `.claude/docs/vibecheck/` directory contains:
 - Self-hosting: vibe-check tests itself with its own API
 - Focus on DX: API should feel natural in real tests
 
-## Critical Design Decisions (Pending Research)
+## Critical Design Decisions
 
-These questions need answers before full implementation:
+Research from `deep-research-report.md` has answered most critical questions:
 
-1. **RunResult interface** - What exact fields/methods? Optimize for matcher DX
-2. **Storage strategy** - task.meta vs fixture state vs hybrid?
-3. **Context manager** - How to implement capture → process → inject flow?
-4. **Memory management** - Lazy loading for large file changes?
-5. **Workspace context** - Agent-level? Test-level? Both with override?
-6. **Loop patterns** - How to support "until condition met" in vibeWorkflow?
-7. **API naming** - `vibeWorkflow` vs `vibePipeline` for automation API?
+1. ✅ **RunResult interface** - Complete TypeScript interface designed (see report Part 7.1)
+   - Lazy file accessors, git state, tool calls, timeline, metrics
+2. ✅ **Storage strategy** - **Hybrid** (disk RunBundle + thin task.meta, see report Part 2.4)
+3. ✅ **Context manager** - ContextManager class with capture → process → inject flow (see report Part 2.2)
+4. ✅ **Memory management** - Lazy loading with content-addressed storage (see report Part 2.6)
+5. ✅ **Workspace context** - **Both with override** (default at test level, override at runAgent, see report Part 7.4)
+6. ✅ **Loop patterns** - `until()` helper in `vibeWorkflow` context (see report Part 7.3)
+7. ✅ **API naming** - **`vibeWorkflow`** chosen over `vibePipeline` (see report Part 7.3)
 
-Answers will come from research using `vitest-deep-research-prompt-v2.md`.
+**Still pending implementation:**
+- RunBundle cleanup/retention policy
+- Test strategy for ContextManager
+- Error handling patterns for hook capture failures
 
 ## Working with Claude Code Hooks
 
