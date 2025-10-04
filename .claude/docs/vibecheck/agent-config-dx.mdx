@@ -1,0 +1,270 @@
+---
+title: "Agent Configuration & Project Source DX"
+description: "DX-first proposals for @dao/vibe-check: defineAgent, sources/worktrees, commands, and suite integration."
+---
+
+> Goal: cleanly separate **what to do** (prompt) from **how/where to do it** (agent), while keeping simple cases trivial and advanced cases fully controllable.
+
+## TL;DR (Recommendation)
+
+- **Primary API:** `defineAgent()` + pass `agent` to `runAgent({ prompt, agent })`.
+- **Benchmarking:** use `defineTestSuite` matrix with an `agent` dimension.
+- **Team reuse:** optional `defineAgents` registry for name-based lookups.
+- **Sources:** normalized `SourceSpec` with temp/local/git + worktree isolation defaults.
+
+---
+
+## Core Concepts
+
+- **Prompt**: the task (text + optional command + attachments), built using `prompt(...)`.
+- **Agent**: the environment + tools + persona + source/workspace for execution.
+- **Source**: where code lives (temp, local path, git repo), managed with isolation/worktrees.
+
+---
+
+## Option 1 — `defineAgent()` (Recommended)
+
+### API
+
+```ts
+export interface AgentConfig {
+  name?: string;
+  model?: string;                        // default 'claude-3-5-sonnet-latest'
+  tools?: string[];                      // allowed tools (security surface)
+  mcpServers?: Record<string, MCPServerConfig>;
+  timeouts?: { maxTurns?: number; timeoutMs?: number };
+  source?: SourceSpec;
+  systemPrompt?: SystemPromptSpec;
+  commands?: Record<string, CommandDefinition>;
+}
+
+export type SourceSpec = TempSource | LocalSource | GitSource;
+
+export interface TempSource {
+  type: 'temp';
+  worktree?: WorktreePolicy;
+}
+export interface LocalSource {
+  type: 'local';
+  path: string;
+  isolate?: boolean;           // default true
+  worktree?: WorktreePolicy;   // when isolate && underlying is git
+}
+export interface GitSource {
+  type: 'git';
+  url: string;
+  branch?: string;
+  commit?: string;
+  depth?: number;
+  cacheDir?: string;
+  worktree?: WorktreePolicy;
+}
+
+export interface WorktreePolicy {
+  isolate?: boolean;           // default true
+  mode?: 'auto' | 'branch' | 'detached';
+  cleanup?: 'always' | 'on-success' | 'never';
+  baseDir?: string;
+}
+
+export interface SystemPromptSpec {
+  preset?: SystemPromptPreset; // 'base'|'refactorer'|'security-auditor'|'test-writer'
+  append?: string;
+  appendFromFile?: string;
+}
+export type SystemPromptPreset =
+  | 'base'
+  | 'refactorer'
+  | 'security-auditor'
+  | 'test-writer';
+
+export interface CommandDefinition {
+  description?: string;
+  schema?: unknown; // recommend zod at call sites
+  preflight?: (ctx: CommandContext) => Promise<void> | void;
+  transformPrompt?: (p: AsyncIterablePrompt | string) => AsyncIterablePrompt | string;
+  postprocess?: (ctx: CommandContext, result: RunResult) => Promise<void> | void;
+}
+export interface CommandContext {
+  cwd: string;
+  agent: AgentConfig;
+  task: { id: string; meta: Record<string, any> };
+}
+
+export function defineAgent(cfg: AgentConfig): AgentConfig;
+
+export type RunAgentInput = {
+  prompt: AsyncIterablePrompt | string;
+  agent?: AgentConfig | string;
+  override?: Partial<AgentConfig> & { source?: SourceSpec };
+};
+````
+
+### Examples
+
+**Simple (90% case)**
+
+```ts
+const defaultAgent = defineAgent({
+  tools: ['Read','Edit','Grep'],
+  source: { type: 'temp' },
+  systemPrompt: { preset: 'base' },
+});
+
+const res = await runAgent({
+  prompt: prompt('Refactor @src/index.ts'),
+  agent: defaultAgent,
+});
+```
+
+**Advanced**
+
+```ts
+const securityAgent = defineAgent({
+  name: 'security',
+  model: 'claude-opus-4',
+  tools: ['Read','Grep','Glob'],
+  source: {
+    type: 'git',
+    url: 'https://github.com/acme/app.git',
+    branch: 'main',
+    worktree: { isolate: true, cleanup: 'always' },
+  },
+  systemPrompt: { preset: 'security-auditor', append: 'Prefer static analysis.' },
+  commands: {
+    '/scan-secrets': {
+      description: 'Scan repository for secrets',
+      preflight: () => {},
+      postprocess: async () => {},
+    },
+  },
+  timeouts: { maxTurns: 15, timeoutMs: 180_000 },
+});
+
+await runAgent({ prompt: '/scan-secrets', agent: securityAgent });
+```
+
+### Source Shorthands
+
+* `'./path'` → `{ type: 'local', path: './path', isolate: true }`
+* `'https://github.com/org/repo#branch@commit'` → `{ type: 'git', url, branch, commit }`
+* `'gh:org/repo#branch'` → GitHub https shorthand
+
+### Resolution Order
+
+1. `override.source` in `runAgent` → 2) `agent.source` → 3) `{ type: 'temp' }`.
+
+### Isolation & Cleanup
+
+* `TempSource`: always isolated workspace.
+* `LocalSource`:
+
+  * If `isolate: true` **and** dir is a git repo → **worktree**.
+  * If not a git repo → **copy** to temp workspace.
+* `GitSource`: clone (optionally via cache) + **worktree** per run if isolate is true.
+* `cleanup`: `'always' | 'on-success' | 'never'`.
+
+**Pros**: simple defaults, strong separation, reusable configs, all sources supported, great TS DX.
+**Cons**: needs shorthand parsing internally.
+**DX Score**: **9/10**
+
+---
+
+## Option 2 — `defineAgents` Registry
+
+### API
+
+```ts
+export function defineAgents<T extends Record<string, AgentConfig>>(agents: T): T;
+```
+
+### Example
+
+```ts
+export const agents = defineAgents({
+  default: defineAgent({ source: { type: 'temp' }, tools: ['Read','Edit'] }),
+  security: defineAgent({ model: 'claude-opus-4', tools: ['Read','Grep'], source: 'gh:acme/app#main' }),
+});
+
+await runAgent({ prompt: '/scan-secrets', agent: 'security' });
+```
+
+**Pros**: team-friendly, consistent names, concise in tests.
+**Cons**: small indirection; naming governance needed.
+**DX Score**: **8/10**
+
+---
+
+## Option 3 — Matrix-first (Agent as a Dimension)
+
+Use existing `defineTestSuite`:
+
+```ts
+defineTestSuite({
+  matrix: {
+    agent: [
+      defineAgent({ name: 'temp', source: { type: 'temp' } }),
+      defineAgent({ name: 'repo', source: 'gh:acme/app#main' }),
+    ],
+  },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name} refactor`, async ({ runAgent }) => {
+      await runAgent({ prompt: 'Refactor @src/utils.ts', agent });
+    });
+  },
+});
+```
+
+**Pros**: perfect for benchmarking; no new concepts.
+**Cons**: verbose if you only have one agent.
+**DX Score**: **8.5/10**
+
+---
+
+## Option 4 — Fluent Builder
+
+```ts
+const sec = Agent()
+  .name('security')
+  .model('claude-opus-4')
+  .tools(['Read','Grep'])
+  .source('gh:acme/app#main')
+  .systemPrompt({ preset: 'security-auditor' })
+  .build();
+```
+
+**Pros**: expressive chaining.
+**Cons**: slightly worse type inference vs object literals; noisier diffs.
+**DX Score**: **7.5/10**
+
+---
+
+## Implementation Mapping (to current skeleton)
+
+* **`src/types.ts`**: add `AgentConfig`, `SourceSpec`, `WorktreePolicy`, `SystemPromptSpec`, `CommandDefinition`.
+  Update `RunAgentInput` to include `{ agent?: AgentConfig | string; override?: Partial<AgentConfig> & { source?: SourceSpec } }`.
+  **Deprecate** `repoPath` (use `agent.source`).
+
+* **`src/runner/agentRunner.ts`**:
+
+  * Accept `agent` + `override`.
+  * Resolve `SourceSpec` to a real workspace dir:
+
+    * temp → mkdtemp
+    * local (git) → `git worktree add --detach`
+    * local (non-git) → copy to temp dir
+    * git → clone (cache optional) + worktree
+  * Respect `tools`, `mcpServers`, `timeouts`, `systemPrompt`.
+  * Cleanup per `worktree.cleanup`.
+
+* **`src/utils/git.ts`**:
+
+  * `resolveSourceSpec(input: SourceSpec | string): SourceSpec`
+  * `prepareWorktree(src, opts)`, `cleanWorktree(dest)`
+
+* **Docs**:
+
+  * Add this page (Agents & Sources).
+  * Update README with a short "Agent Builder API" section linking here.
+
+---

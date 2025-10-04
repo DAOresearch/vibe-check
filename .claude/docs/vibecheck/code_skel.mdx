@@ -1,9 +1,15 @@
+---
+title: "Code Skeletons"
+description: "TypeScript code skeletons for @dao/vibe-check"
+---
+
 Below are TypeScript code skeletons for @dao/vibe-check. Copy into a fresh repo and fill the TODOs.
 
-⸻
+---
 
-File tree
+## File tree
 
+```
 @dao/vibe-check/
 ├─ package.json
 ├─ tsconfig.json
@@ -36,14 +42,15 @@ File tree
 │     └─ git.ts
 └─ examples/
    └─ basic.test.ts
+```
 
+---
 
-⸻
+## Root
 
-Root
+### package.json
 
-package.json
-
+```json
 {
   "name": "@dao/vibe-check",
   "version": "0.1.0",
@@ -88,9 +95,11 @@ package.json
     "vitest": "^3.2.0"
   }
 }
+```
 
-tsconfig.json
+### tsconfig.json
 
+```json
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -109,9 +118,11 @@ tsconfig.json
   },
   "include": ["src", "ambient.d.ts", "examples", "vitest.config.ts"]
 }
+```
 
-vitest.config.ts
+### vitest.config.ts
 
+```typescript
 import { defineVibeConfig } from './src/config';
 
 export default defineVibeConfig({
@@ -120,9 +131,11 @@ export default defineVibeConfig({
     // tweak workers/timeouts as needed
   },
 });
+```
 
-ambient.d.ts
+### ambient.d.ts
 
+```typescript
 // Vitest task meta augmentation + custom matchers
 import 'vitest';
 
@@ -142,14 +155,15 @@ declare module 'vitest' {
     toHaveNoErrorsInLogs(): T;
   }
 }
+```
 
+---
 
-⸻
+## Public API
 
-Public API
+### src/index.ts
 
-src/index.ts
-
+```typescript
 export { vibeTest } from './test/vibeTest';
 export { defineVibeConfig } from './config';
 export { defineTestSuite } from './matrix/defineTestSuite';
@@ -158,9 +172,11 @@ export { VibeCostReporter } from './reporters/cost';
 
 export * from './types';
 export * from './judge/rubric';
+```
 
-src/types.ts
+### src/types.ts
 
+```typescript
 export interface RunMetrics {
   totalTokens?: number;
   totalCostUsd?: number;
@@ -218,14 +234,15 @@ export interface JudgeResult {
 }
 
 export type JudgeFn = (result: RunResult, opts: { rubric: import('./judge/rubric').Rubric; throwOnFail?: boolean }) => Promise<JudgeResult>;
+```
 
+---
 
-⸻
+## Config helper
 
-Config helper
+### src/config/index.ts
 
-src/config/index.ts
-
+```typescript
 import { defineConfig } from 'vitest/config';
 import { VibeHtmlReporter } from '../reporters/html';
 import { VibeCostReporter } from '../reporters/cost';
@@ -245,14 +262,15 @@ export function defineVibeConfig(user: any = {}) {
 }
 
 export default defineVibeConfig;
+```
 
+---
 
-⸻
+## Test context & fixtures
 
-Test context & fixtures
+### src/test/context.ts
 
-src/test/context.ts
-
+```typescript
 import type { ArtifactManager } from '../artifacts/ArtifactManager';
 import type { MetricsTracker } from '../metrics/MetricsTracker';
 import type { JudgeFn, RunAgentFn } from '../types';
@@ -267,9 +285,11 @@ export interface VibeTestContext {
 declare module 'vitest' {
   export interface TestContext extends VibeTestContext {}
 }
+```
 
-src/test/vibeTest.ts
+### src/test/vibeTest.ts
 
+```typescript
 import { test as base } from 'vitest';
 import type { VibeTestContext } from './context';
 import { ArtifactManager } from '../artifacts/ArtifactManager';
@@ -306,9 +326,11 @@ export const vibeTest = (base.extend as any)<VibeTestContext>({
 });
 
 export type { VibeTestContext };
+```
 
-src/test/matchers.ts
+### src/test/matchers.ts
 
+```typescript
 import { expect } from 'vitest';
 import type { RunResult } from '../types';
 
@@ -359,14 +381,15 @@ expect.extend({
     };
   },
 });
+```
 
+---
 
-⸻
+## Runner
 
-Runner
+### src/runner/sdk-types.ts
 
-src/runner/sdk-types.ts
-
+```typescript
 // Placeholder types to decouple from the real SDK; replace with actual imports later.
 
 export interface AgentOptions {
@@ -393,9 +416,11 @@ export interface SDKClient {
   query(prompt: string, options: AgentOptions): SDKStream;
   close(): Promise<void>;
 }
+```
 
-src/runner/agentRunner.ts
+### src/runner/agentRunner.ts
 
+```typescript
 import { RunResult, StructuredRunData, RunAgentInput } from '../types';
 import { ArtifactManager } from '../artifacts/ArtifactManager';
 import { MetricsTracker } from '../metrics/MetricsTracker';
@@ -510,14 +535,15 @@ export class AgentRunner {
     if (this.workspace) await this.workspace.cleanup();
   }
 }
+```
 
+---
 
-⸻
+## Judges & rubrics
 
-Judges & rubrics
+### src/judge/rubric.ts
 
-src/judge/rubric.ts
-
+```typescript
 import { z } from 'zod';
 
 export const CriterionSchema = z.object({
@@ -536,9 +562,11 @@ export const RubricSchema = z.object({
 
 export type Rubric = z.infer<typeof RubricSchema>;
 export type Criterion = z.infer<typeof CriterionSchema>;
+```
 
-src/judge/llmJudge.ts
+### src/judge/llmJudge.ts
 
+```typescript
 import type { RunResult, JudgeResult } from '../types';
 import type { Rubric } from './rubric';
 
@@ -558,14 +586,15 @@ export class LLMJudge {
     return res;
   }
 }
+```
 
+---
 
-⸻
+## Reporters
 
-Reporters
+### src/reporters/cost.ts
 
-src/reporters/cost.ts
-
+```typescript
 import { BaseReporter } from 'vitest/reporters';
 import type { Reporter, TestCase } from 'vitest/node';
 
@@ -583,9 +612,11 @@ export class VibeCostReporter extends BaseReporter implements Reporter {
     this.log(`\n[vibe] Total tests: ${this.totals.tests}, total cost: $${this.totals.cost.toFixed(4)}\n`);
   }
 }
+```
 
-src/reporters/html.ts
+### src/reporters/html.ts
 
+```typescript
 import { BaseReporter } from 'vitest/reporters';
 import type { Reporter, TestCase, TestModule } from 'vitest/node';
 import { writeFile } from 'node:fs/promises';
@@ -640,19 +671,22 @@ th{background:#f3f4f6;text-align:left}
 function escapeHtml(s: any) {
   return String(s).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]!));
 }
+```
 
-reporters/index.ts
+### reporters/index.ts
 
+```typescript
 export { VibeHtmlReporter } from '../src/reporters/html';
 export { VibeCostReporter } from '../src/reporters/cost';
+```
 
+---
 
-⸻
+## Matrix
 
-Matrix
+### src/matrix/defineTestSuite.ts
 
-src/matrix/defineTestSuite.ts
-
+```typescript
 import { describe } from 'vitest';
 import { vibeTest } from '../test/vibeTest';
 
@@ -681,14 +715,15 @@ function cartesian<T extends Record<string, any[]>>(m: T): Array<{ [K in keyof T
 
 // Re-export for convenience
 export { vibeTest };
+```
 
+---
 
-⸻
+## Artifacts & metrics
 
-Artifacts & metrics
+### src/artifacts/ArtifactManager.ts
 
-src/artifacts/ArtifactManager.ts
-
+```typescript
 import { ensureDir, writeFile } from 'fs-extra';
 import { join } from 'pathe';
 import type { StructuredRunData } from '../types';
@@ -717,9 +752,11 @@ export class ArtifactManager {
 function sanitize(s: string) {
   return s.replace(/[^\w.-]/g, '_');
 }
+```
 
-src/metrics/MetricsTracker.ts
+### src/metrics/MetricsTracker.ts
 
+```typescript
 import type { RunMetrics } from '../types';
 
 export class MetricsTracker {
@@ -731,14 +768,15 @@ export class MetricsTracker {
     if (m.durationMs != null) this.totals.durationMs = (this.totals.durationMs ?? 0) + m.durationMs;
   }
 }
+```
 
+---
 
-⸻
+## Utils
 
-Utils
+### src/utils/dataQuery.ts
 
-src/utils/dataQuery.ts
-
+```typescript
 import type { RunResult } from '../types';
 
 export function findMessages(result: RunResult, rx: RegExp) {
@@ -752,9 +790,11 @@ export function getToolUsageCount(result: RunResult, name: string) {
 export function completedTodos(result: RunResult) {
   return (result.todos ?? []).filter(t => t.status === 'completed');
 }
+```
 
-src/utils/tempfs.ts
+### src/utils/tempfs.ts
 
+```typescript
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -766,9 +806,11 @@ export async function createTempWorkspace(opts: { prefix: string }) {
     cleanup: async () => rm(dir, { recursive: true, force: true }),
   };
 }
+```
 
-src/utils/time.ts
+### src/utils/time.ts
 
+```typescript
 export const nowMs = () => Date.now();
 
 export async function withTimeout<T>(p: Promise<T>, ms: number, msg = 'Timeout'): Promise<T> {
@@ -780,9 +822,11 @@ export async function withTimeout<T>(p: Promise<T>, ms: number, msg = 'Timeout')
     clearTimeout(to!);
   }
 }
+```
 
-src/utils/git.ts
+### src/utils/git.ts
 
+```typescript
 // Skeleton for git worktree helpers. Implement as needed.
 export async function prepareWorktree(_src: string, _dest: string) {
   // TODO: spawn git worktree add --detach ...
@@ -791,14 +835,15 @@ export async function prepareWorktree(_src: string, _dest: string) {
 export async function cleanWorktree(_dest: string) {
   // TODO: remove worktree
 }
+```
 
+---
 
-⸻
+## Example
 
-Example
+### examples/basic.test.ts
 
-examples/basic.test.ts
-
+```typescript
 import { vibeTest } from '../src';
 
 vibeTest('refactor stays under budget and completes todos', async ({ runAgent, judge, task, expect }) => {
@@ -820,10 +865,11 @@ vibeTest('refactor stays under budget and completes todos', async ({ runAgent, j
 
   await judge(result, { rubric: { criteria: [{ id: 'q', description: 'quality', weight: 1 }], passingScore: 0.7, evaluationMethod: 'hybrid' }, throwOnFail: true });
 });
+```
 
+---
 
-⸻
+## Notes
 
-Notes
-	•	The runner uses a mock SDK (sdk-types.ts) so the skeleton compiles. Replace createSDKClient() with the real Claude Agent SDK integration and map events accordingly.
-	•	Reporters, matchers, and judge are minimal on purpose; fill in behavior as needed.
+- The runner uses a mock SDK (`sdk-types.ts`) so the skeleton compiles. Replace `createSDKClient()` with the real Claude Agent SDK integration and map events accordingly.
+- Reporters, matchers, and judge are minimal on purpose; fill in behavior as needed.
