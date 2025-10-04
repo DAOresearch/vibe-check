@@ -1,3 +1,15 @@
+# ARCHIVED: Original README.md
+
+> **Archived on:** 2025-10-04
+> **Replaced by:** Root README.md (adopted from readme-exp.mdx structure)
+> **Reason:** Restructured to Diátaxis framework with 69% reduction (1665 → 368 lines)
+
+This file is preserved for historical reference and content migration. The new documentation structure is organized in `/docs/` following the Diátaxis framework (tutorials, guides, recipes, reference).
+
+See `MIGRATION_GUIDE.md` for the complete migration plan.
+
+---
+
 # Vibe Check
 
 > Vitest-based testing framework for Claude Code slash commands and workflows
