@@ -11,17 +11,49 @@ This section provides complete API documentation with TypeScript type signatures
 ## Core API
 
 ### [vibeTest](./vibeTest.md)
-The main test function with Vibe Check fixtures and context.
+Evaluation-first test function for benchmarking and quality gates.
 
 ```typescript
-vibeTest(name: string, fn: TestFunction, timeout?: number): void
+vibeTest(
+  name: string,
+  fn: (ctx: VibeTestContext) => Promise<void> | void,
+  timeoutOrOpts?: number | { timeout?: number }
+): void
 ```
 
-**Provides:**
+**Use cases:** Benchmarking models, quality gates, matrix testing
+
+**Context provides:**
 - `runAgent` - Execute agents
 - `judge` - LLM-based evaluation
-- `artifacts` - Save test artifacts
-- `expect` - Custom matchers
+- `expect` - Custom matchers with Vitest assertions
+- `annotate` - Stream progress to reporters
+- `task` - Access Vitest task metadata
+
+---
+
+### [vibeWorkflow](./vibeWorkflow.md)
+Automation-first workflow function for multi-stage pipelines.
+
+```typescript
+vibeWorkflow(
+  name: string,
+  fn: (ctx: WorkflowContext) => Promise<void>,
+  options?: {
+    timeout?: number;
+    defaults?: { workspace?: string; model?: string }
+  }
+): void
+```
+
+**Use cases:** Multi-stage pipelines, loops/retries, production automation
+
+**Context provides:**
+- `stage(name, opts)` - Execute workflow stages
+- `files` - Cumulative file changes across stages
+- `tools` - Cumulative tool calls across stages
+- `timeline` - Unified event timeline
+- `until(predicate, body)` - Loop helper
 
 ---
 
@@ -62,25 +94,30 @@ interface AgentSpec {
 ---
 
 ### [runAgent](./runAgent.md)
-Execute an agent and get structured results.
+Execute an agent and get auto-captured execution context.
 
 ```typescript
 async function runAgent(options: RunAgentOptions): Promise<RunResult>
 
 interface RunAgentOptions {
-  prompt: string | AsyncIterablePrompt;
   agent?: Agent;
+  prompt: string | AsyncIterablePrompt;
   override?: Partial<AgentSpec>;
-}
-
-interface RunResult {
-  messages: AgentMessage[];
-  toolCalls: ToolCallRecord[];
-  todos: TodoItem[];
-  metrics: RunMetrics;
-  artifacts: string[];
+  workspace?: string;
+  context?: RunResult;
 }
 ```
+
+**Returns `RunResult` with:**
+- `metrics` - Tokens, cost (USD), duration, counts
+- `messages` - Conversation messages (summarized, lazy-loaded)
+- `todos` - Todo list with status tracking
+- `git` - Git state before/after (if workspace provided)
+- `files` - Changed files with lazy content loading
+- `tools` - Tool calls with inputs/outputs/timing
+- `timeline` - Unified event timeline (SDK + hooks)
+
+**See:** [RunResult type definition](./types.md#runresult)
 
 ---
 
@@ -110,12 +147,21 @@ interface JudgeResult {
 ### [Custom Matchers](./matchers.md)
 Quality assertions for agent results.
 
-Available matchers:
-- `toStayUnderCost(maxUsd: number)` - Enforce cost budgets
-- `toCompleteAllTodos()` - Verify all tasks completed
-- `toUseOnlyTools(allowlist: string[])` - Validate tool usage
-- `toHaveNoErrorsInLogs()` - Check for errors in messages
-- `toPassRubric(rubric: Rubric)` - LLM-based quality check
+**File matchers:**
+- `toHaveChangedFiles(paths: string[])` - Assert specific files changed (supports globs)
+- `toHaveNoDeletedFiles()` - Assert no files were deleted
+
+**Tool matchers:**
+- `toHaveUsedTool(name, opts?)` - Assert tool usage with optional min/max counts
+- `toUseOnlyTools(allowlist: string[])` - Assert only specified tools used
+
+**Quality matchers:**
+- `toCompleteAllTodos()` - Assert all todos completed
+- `toHaveNoErrorsInLogs()` - Assert no error messages in logs
+- `toPassRubric(rubric: Rubric)` - Assert LLM-based quality evaluation
+
+**Cost matchers:**
+- `toStayUnderCost(maxUsd: number)` - Assert cost under budget
 
 ---
 
@@ -124,13 +170,29 @@ Available matchers:
 ### [TypeScript Types](./types.md)
 Complete type reference for all interfaces, types, and enums.
 
-**Major types:**
-- `Agent` - Agent configuration
-- `RunResult` - Agent execution results
+**Core types:**
+- `RunResult` - Agent execution results with auto-captured context
+- `FileChange` - Changed file with lazy content loading
+- `ToolCall` - Tool invocation with inputs/outputs/timing
+- `TimelineEvent` - Unified timeline events (SDK + hooks)
+
+**Context types:**
+- `VibeTestContext` - Test context for vibeTest
+- `WorkflowContext` - Workflow context for vibeWorkflow
+
+**Agent types:**
+- `Agent` - Configured agent
+- `AgentSpec` - Agent configuration specification
+- `RunAgentOptions` - Options for runAgent
+
+**Evaluation types:**
 - `Rubric` - Evaluation criteria
+- `JudgeResult` - Judge evaluation result
+
+**Other types:**
 - `SourceSpec` - Project source configuration
-- `ToolCallRecord` - Tool invocation details
 - `TodoItem` - Todo list item
+- `AsyncIterablePrompt` - Streamable prompt
 
 ---
 
