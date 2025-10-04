@@ -675,17 +675,17 @@ class VibeHtmlReporter extends BaseReporter {
 - [x] `README.md` - Add vibeWorkflow to core API list
 
 #### `/docs/guides/automation/`
-- [ ] `pipelines.md` - Rewrite using `vibeWorkflow` with stages and loops
-- [ ] `orchestration.md` - Update multi-agent patterns with cumulative context
+- [x] `pipelines.md` - Rewrite using `vibeWorkflow` with stages and loops
+- [x] `orchestration.md` - Update multi-agent patterns with cumulative context
 
 #### `/docs/guides/evaluation/`
-- [ ] `benchmarking.md` - Use real `vibeTest` examples
-- [ ] `matrix-testing.md` - Update to reference `test.for` pattern
+- [x] `benchmarking.md` - Use real `vibeTest` examples
+- [x] `matrix-testing.md` - Update to reference `test.for` pattern
 
 #### `/docs/getting-started/`
-- [ ] `first-automation.md` - Rewrite with `vibeWorkflow`
-- [ ] `first-evaluation.md` - Rewrite with `vibeTest`
-- [ ] `README.md` - Update quick start with real APIs
+- [x] `first-automation.md` - Rewrite with `vibeWorkflow`
+- [x] `first-evaluation.md` - Rewrite with `vibeTest`
+- [x] `README.md` - Update quick start with real APIs
 
 #### `/docs/contributing/`
 - [ ] `architecture.md` - Document ContextManager, RunBundle, hook capture
@@ -848,10 +848,16 @@ Before declaring documentation complete:
 - ✅ matchers.md - File/tool/quality/cost matchers
 - ✅ README.md - Updated with vibeWorkflow and all new APIs
 
-**Session 3** (NEXT): Update guides and getting-started tutorials
-- Focus: automation guides, evaluation guides, first-*.md tutorials
+**Session 3**: ✅ Updated guides and getting-started tutorials
+- ✅ pipelines.md - vibeWorkflow patterns with stages/loops
+- ✅ orchestration.md - Multi-agent coordination patterns
+- ✅ benchmarking.md - vibeTest examples and quality gates
+- ✅ matrix-testing.md - test.for patterns and comparisons
+- ✅ first-automation.md - Step-by-step pipeline tutorial
+- ✅ first-evaluation.md - Step-by-step benchmark tutorial
+- ✅ getting-started/README.md - Real API quick-start
 
-**Session 4**: Update internal docs and contributing guides
+**Session 4** (NEXT): Update internal docs and contributing guides
 - Focus: CLAUDE.md, implementation-plan.mdx, architecture.md
 
 **Final**: Verify all checklists complete, no placeholders remain
