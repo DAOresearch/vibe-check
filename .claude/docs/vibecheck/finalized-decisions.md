@@ -688,15 +688,15 @@ class VibeHtmlReporter extends BaseReporter {
 - [x] `README.md` - Update quick start with real APIs
 
 #### `/docs/contributing/`
-- [ ] `architecture.md` - Document ContextManager, RunBundle, hook capture
-- [ ] `implementation-plan.md` - Sync with `.claude/docs/vibecheck/implementation-plan.mdx`
+- [x] `architecture.md` - Document ContextManager, RunBundle, hook capture
+- [x] `implementation-plan.md` - References `.claude/docs/vibecheck/implementation-plan.mdx` (updated)
 
 #### `.claude/` - Internal Docs
-- [ ] `CLAUDE.md` - Remove "To be decided", add ✅ to Critical Design Decisions
-- [ ] `docs/vibecheck/implementation-plan.mdx` - Update with finalized APIs and priorities
+- [x] `CLAUDE.md` - Remove "To be decided", add ✅ to Critical Design Decisions
+- [x] `docs/vibecheck/implementation-plan.mdx` - Update with finalized APIs and priorities
 
 #### Root docs
-- [ ] `README.md` - Update examples with real API
+- [x] `README.md` - Update examples with real API (completed in earlier sessions)
 
 ---
 
@@ -857,7 +857,10 @@ Before declaring documentation complete:
 - ✅ first-evaluation.md - Step-by-step benchmark tutorial
 - ✅ getting-started/README.md - Real API quick-start
 
-**Session 4** (NEXT): Update internal docs and contributing guides
-- Focus: CLAUDE.md, implementation-plan.mdx, architecture.md
+**Session 4**: ✅ Updated internal docs and contributing guides
+- ✅ CLAUDE.md - Removed "To be decided", updated workspace context, added finalized APIs
+- ✅ implementation-plan.mdx - Added vibeWorkflow, updated RunResult, added ContextManager
+- ✅ architecture.md - Created comprehensive architecture documentation
+- ✅ Verified all checklist items from Part 8
 
-**Final**: Verify all checklists complete, no placeholders remain
+**Status**: ✅ ALL DOCUMENTATION COMPLETE - Ready for implementation
