@@ -1,0 +1,10 @@
+/* Custom styles for Vibe Check documentation */
+
+:root {
+	/* Brand colors - can be customized later */
+	--sl-color-accent-low: #1e293b;
+	--sl-color-accent: #3b82f6;
+	--sl-color-accent-high: #dbeafe;
+}
+
+/* Additional custom styles can be added here */

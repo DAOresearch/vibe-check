@@ -10,13 +10,21 @@
     "check": "bun run lint:summary && bun run typecheck",
     "dev": "bun run src/index.tsx",
     "clean:dev": "rm -rf .dev",
-    "clean:test": "rm -rf .dev/reports .dev/screenshots"
+    "clean:test": "rm -rf .dev/reports .dev/screenshots",
+    "docs:dev": "astro dev",
+    "docs:build": "astro build",
+    "docs:preview": "astro preview"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@astrojs/starlight": "^0.36.0",
     "@biomejs/biome": "2.2.4",
     "@types/bun": "latest",
+    "astro": "^5.14.1",
     "lefthook": "^1.13.5",
     "lint-staged": "^16.2.3",
+    "sharp": "^0.34.4",
+    "starlight-ion-theme": "^2.3.1",
     "ultracite": "5.4.5",
     "winston": "^3.18.1"
   },
