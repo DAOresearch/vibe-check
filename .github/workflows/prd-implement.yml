@@ -177,13 +177,15 @@ jobs:
             });
 
             // Notify user with error details
+            const workflowUrl = '${{ github.server_url }}' + '/' + '${{ github.repository }}' + '/actions/runs/' + '${{ github.run_id }}';
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: ${{ github.event.issue.number }},
               body: `❌ **PRD Implementation Failed**
 
-**Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+**Workflow Run:** ${workflowUrl}
 
 The implementation encountered an error. Please check the workflow logs above for details.
 
