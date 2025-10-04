@@ -1,0 +1,32 @@
+{
+  "name": "vibe-check",
+  "module": "src/index.tsx",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "bun x biome check --write",
+    "lint:summary": "bun x biome check --write --reporter=summary",
+    "typecheck": "bun x tsc --noEmit",
+    "check": "bun run lint:summary && bun run typecheck",
+    "dev": "bun run src/index.tsx",
+    "clean:dev": "rm -rf .dev",
+    "clean:test": "rm -rf .dev/reports .dev/screenshots"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "@types/bun": "latest",
+    "lefthook": "^1.13.5",
+    "lint-staged": "^16.2.3",
+    "ultracite": "5.4.5",
+    "winston": "^3.18.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {},
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
+      "bun x ultracite fix"
+    ]
+  }
+}
