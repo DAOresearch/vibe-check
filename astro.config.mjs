@@ -1,3 +1,4 @@
+import sitemap from "@astrojs/sitemap";
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import { ion } from "starlight-ion-theme";
@@ -10,6 +11,7 @@ export default defineConfig({
 	base: "/vibe-check",
 	trailingSlash: "always",
 	integrations: [
+		sitemap(),
 		starlight({
 			title: "Vibe Check",
 			description: "Automation and Evaluation framework for Claude Code agents",
