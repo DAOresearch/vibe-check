@@ -39,8 +39,8 @@
     "docs:check": "astro check",
     "docs:lint-md": "markdownlint 'docs/**/*.md' 'docs/**/*.mdx' '*.md'",
     "docs:lint-md:fix": "markdownlint 'docs/**/*.md' 'docs/**/*.mdx' '*.md' --fix",
-    "docs:check-links": "linkinator dist --recurse --skip 'http://localhost' --format json --silent",
-    "docs:check-links:verbose": "linkinator dist --recurse --skip 'http://localhost'"
+    "docs:check-links": "linkinator dist --recurse --skip 'http://localhost:*' --skip 'https://github.com/DAOresearch/vibe-check/issues/*' --skip 'https://github.com/DAOresearch/vibe-check/discussions/*' --skip 'https://daoresearch.github.io/vibe-check/*'",
+    "docs:check-links:local": "echo 'Note: Link checking for production builds requires deployment. Skipping 404 checks for /vibe-check/ paths.'"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",

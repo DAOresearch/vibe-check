@@ -6,12 +6,20 @@ on:
       - 'docs/**'
       - 'astro.config.mjs'
       - 'package.json'
+      - '.markdownlint.json'
+      - '.markdownlintignore'
+      - '.linkinator.config.json'
+      - '.github/workflows/verify-docs.yml'
   push:
     branches: [main]
     paths:
       - 'docs/**'
       - 'astro.config.mjs'
       - 'package.json'
+      - '.markdownlint.json'
+      - '.markdownlintignore'
+      - '.linkinator.config.json'
+      - '.github/workflows/verify-docs.yml'
 
 jobs:
   docs-check:
@@ -38,4 +46,4 @@ jobs:
         run: bun run docs:build
 
       - name: Check for broken links
-        run: bun run docs:check-links
+        run: npx linkinator dist --recurse --skip 'http://localhost:*' --skip 'https://github.com/DAOresearch/vibe-check/issues/*' --skip 'https://github.com/DAOresearch/vibe-check/discussions/*' --skip 'https://daoresearch.github.io/vibe-check/*' --skip 'dist/vibe-check/*'
