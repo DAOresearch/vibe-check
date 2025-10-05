@@ -34,7 +34,7 @@
     "clean:dev": "rm -rf .dev",
     "clean:test": "rm -rf .dev/reports .dev/screenshots",
     "docs:dev": "astro dev",
-    "docs:build": "astro build",
+    "docs:build": "astro build && node scripts/fix-base-paths.mjs",
     "docs:preview": "astro preview",
     "docs:check": "astro check",
     "docs:lint-md": "markdownlint 'docs/**/*.md' 'docs/**/*.mdx' '*.md'",
