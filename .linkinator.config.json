@@ -3,7 +3,8 @@
   "skip": [
     "http://localhost:*",
     "https://github.com/DAOresearch/vibe-check/issues/*",
-    "https://github.com/DAOresearch/vibe-check/discussions/*"
+    "https://github.com/DAOresearch/vibe-check/discussions/*",
+    "/vibe-check/"
   ],
   "timeout": 10000,
   "retry": true,
