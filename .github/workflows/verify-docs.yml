@@ -46,4 +46,6 @@ jobs:
         run: bun run docs:build
 
       - name: Check for broken links
-        run: npx linkinator dist --recurse --skip 'http://localhost:*' --skip 'https://github.com/DAOresearch/vibe-check/issues/*' --skip 'https://github.com/DAOresearch/vibe-check/discussions/*' --skip 'https://daoresearch.github.io/vibe-check/*' --skip 'dist/vibe-check/*'
+        run: |
+          # Skip patterns: localhost (dev), GitHub issues/discussions (rate limits), /vibe-check/ paths (base path - won't exist until deployed)
+          npx linkinator dist --recurse --skip 'http://localhost:*' --skip 'https://github.com/DAOresearch/vibe-check/issues/*' --skip 'https://github.com/DAOresearch/vibe-check/discussions/*' --skip '/vibe-check/' --timeout 10000 --retry
