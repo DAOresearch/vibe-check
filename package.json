@@ -59,7 +59,9 @@
   "peerDependencies": {
     "typescript": "^5"
   },
-  "dependencies": {},
+  "dependencies": {
+    "vitest": "^3.2.4"
+  },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
       "bun x ultracite fix"

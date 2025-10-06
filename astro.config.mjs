@@ -7,7 +7,7 @@ export default defineConfig({
 	srcDir: "./docs",
 	publicDir: "./docs/public",
 	site: "https://daoresearch.github.io",
-	base: "/vibe-check",
+	base: process.env.NODE_ENV === "production" ? "/vibe-check" : "",
 	trailingSlash: "always",
 	integrations: [
 		starlight({
