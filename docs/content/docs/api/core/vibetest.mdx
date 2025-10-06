@@ -1,0 +1,490 @@
+---
+title: vibeTest
+description: Create tests with vibe-check fixtures and context
+sidebar:
+  order: 1
+---
+
+import { Aside, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The `vibeTest` function is the primary entry point for writing agent tests with vibe-check. It wraps Vitest's `test()` function and injects agent-specific fixtures into the test context.
+
+## Signature
+
+```typescript
+function vibeTest(
+  name: string,
+  fn: (ctx: VibeTestContext) => Promise<void> | void,
+  timeoutOrOpts?: number | { timeout?: number }
+): void;
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `string` | Test name (displayed in reports) |
+| `fn` | `(ctx: VibeTestContext) => Promise<void>` | Test function receiving context |
+| `timeoutOrOpts` | `number \| { timeout?: number }` | Optional timeout in ms (default: 300000 = 5 min) |
+
+### Test Context (VibeTestContext)
+
+The test function receives a context object with the following fixtures:
+
+| Fixture | Type | Description |
+|---------|------|-------------|
+| `runAgent` | `(opts: RunAgentOptions) => AgentExecution` | Execute an agent |
+| `judge` | `<T>(result, opts) => Promise<T>` | Evaluate with LLM judge |
+| `expect` | `typeof expect` | Vitest expect (context-bound) |
+| `annotate` | `(message, type?, attachment?) => Promise<void>` | Stream annotations to reporters |
+| `task` | `Task` | Vitest task metadata |
+| `files` | `CumulativeFileAccess` | Cumulative file changes |
+| `tools` | `CumulativeToolAccess` | Cumulative tool calls |
+| `timeline` | `CumulativeTimeline` | Cumulative event timeline |
+
+See [VibeTestContext →](/api/types/test-context/) for complete interface documentation.
+
+---
+
+## Basic Usage
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('agent can execute task', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Create a README.md file'
+  });
+
+  expect(result).toHaveChangedFiles(['README.md']);
+});
+```
+
+---
+
+## Test Modifiers
+
+Like Vitest's `test`, `vibeTest` supports modifiers:
+
+### skip
+
+Skip a test:
+
+```typescript
+vibeTest.skip('not ready yet', async ({ runAgent }) => {
+  // Test is skipped
+});
+```
+
+### only
+
+Run only this test (exclusive):
+
+```typescript
+vibeTest.only('focus on this one', async ({ runAgent }) => {
+  // Only this test runs
+});
+```
+
+### concurrent
+
+Run test concurrently with others:
+
+```typescript
+vibeTest.concurrent('parallel test 1', async ({ runAgent }) => {
+  // Runs in parallel
+});
+
+vibeTest.concurrent('parallel test 2', async ({ runAgent }) => {
+  // Runs in parallel
+});
+```
+
+<Aside type="caution">
+  **Concurrency Limits:** Set `maxConcurrency` in your Vitest config to avoid hitting API rate limits:
+
+  ```typescript
+  export default defineVibeConfig({
+    test: {
+      maxConcurrency: 2
+    }
+  });
+  ```
+</Aside>
+
+### sequential
+
+Force sequential execution (within same file):
+
+```typescript
+vibeTest.sequential('must run first', async ({ runAgent }) => {
+  // Runs first
+});
+
+vibeTest.sequential('must run second', async ({ runAgent }) => {
+  // Runs after first completes
+});
+```
+
+### todo
+
+Mark test as TODO (not implemented):
+
+```typescript
+vibeTest.todo('implement later', async ({ runAgent }) => {
+  // Test is marked as TODO
+});
+```
+
+### fails
+
+Expect test to fail:
+
+```typescript
+vibeTest.fails('known bug', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: 'Buggy task' });
+  expect(result).toCompleteAllTodos(); // Expected to fail
+});
+```
+
+---
+
+## Advanced Usage
+
+### Reactive Watchers (Fail Fast)
+
+Use `AgentExecution.watch()` to fail early if conditions are violated during execution:
+
+```typescript
+vibeTest('fail fast on violations', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/refactor src/',
+    maxTurns: 20
+  });
+
+  // Register watchers before awaiting
+  execution.watch(({ tools, metrics, files }) => {
+    // Fail if too many tool failures
+    expect(tools.failed().length).toBeLessThan(3);
+
+    // Fail if cost exceeds budget
+    expect(metrics.totalCostUsd).toBeLessThan(5.0);
+
+    // Fail if protected files touched
+    const changedPaths = files.changed().map(f => f.path);
+    expect(changedPaths).not.toContain('database/');
+  });
+
+  // Await completion (aborts if watcher fails)
+  const result = await execution;
+
+  // Final assertions (only run if watchers passed)
+  expect(result).toCompleteAllTodos();
+});
+```
+
+<Aside type="tip">
+  **When Watchers Run:** Watchers execute sequentially after each tool call completes (PostToolUse hook). If any watcher throws, execution aborts immediately.
+
+  See [AgentExecution.watch() →](/api/types/agent-execution/#watch) for details.
+</Aside>
+
+### Cumulative State (Multi-Agent Tests)
+
+When running multiple agents in a single test, use cumulative state from context:
+
+```typescript
+vibeTest('multi-agent workflow', async ({ runAgent, files, tools, expect }) => {
+  // First agent: analyze
+  const analyze = await runAgent({
+    prompt: '/analyze src/'
+  });
+
+  // Second agent: fix
+  const fix = await runAgent({
+    prompt: '/fix issues based on analysis'
+  });
+
+  // Access cumulative state across both runs
+  expect(files.changed()).toHaveLength(10);
+  expect(files.filter('**/*.ts')).toHaveLength(8);
+  expect(tools.used('Edit')).toBeGreaterThan(5);
+
+  // Or use matchers on individual results
+  expect(analyze).toHaveUsedTool('Read');
+  expect(fix).toHaveChangedFiles(['src/**/*.ts']);
+});
+```
+
+<Aside type="note">
+  **Cumulative State Fields:**
+  - `files` - All file changes across all `runAgent()` calls
+  - `tools` - All tool calls across all runs
+  - `timeline` - Unified timeline of all events
+
+  See [VibeTestContext →](/api/types/test-context/) for full API.
+</Aside>
+
+### LLM-Based Evaluation with Judge
+
+Use the `judge` fixture to evaluate code quality with an LLM:
+
+```typescript
+vibeTest('quality evaluation', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: 'Refactor src/auth.ts --add-tests'
+  });
+
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Code Quality',
+      criteria: [
+        {
+          name: 'has_tests',
+          description: 'Added comprehensive unit tests',
+          weight: 0.4
+        },
+        {
+          name: 'type_safety',
+          description: 'Uses TypeScript strict types',
+          weight: 0.3
+        },
+        {
+          name: 'clean_code',
+          description: 'Code is readable and maintainable',
+          weight: 0.3
+        }
+      ],
+      passThreshold: 0.75
+    }
+  });
+
+  expect(judgment.passed).toBe(true);
+  expect(judgment.overallScore).toBeGreaterThan(0.8);
+});
+```
+
+See [judge() →](/api/core/judge/) for complete documentation.
+
+### Custom Result Format (Type-Safe Judge)
+
+Define custom judgment structure with Zod:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+import { z } from 'zod';
+
+vibeTest('custom judgment format', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: 'Implement feature from PRD'
+  });
+
+  // Define custom result schema
+  const CustomJudgment = z.object({
+    meetsRequirements: z.boolean(),
+    missingFeatures: z.array(z.string()),
+    codeQualityScore: z.number().min(0).max(1),
+    feedback: z.string()
+  });
+
+  // Type-safe judgment result
+  const judgment = await judge<z.infer<typeof CustomJudgment>>(result, {
+    rubric: {
+      name: 'Feature Implementation',
+      criteria: [
+        { name: 'complete', description: 'All requirements met' },
+        { name: 'quality', description: 'High code quality' }
+      ]
+    },
+    resultFormat: CustomJudgment
+  });
+
+  // TypeScript knows the shape of judgment
+  expect(judgment.meetsRequirements).toBe(true);
+  expect(judgment.missingFeatures).toHaveLength(0);
+  expect(judgment.codeQualityScore).toBeGreaterThan(0.8);
+});
+```
+
+### Custom Timeout
+
+Override the default 5-minute timeout:
+
+```typescript
+// Inline timeout (10 minutes)
+vibeTest('long task', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: 'Complex refactoring',
+    timeoutMs: 600000 // 10 min for agent
+  });
+}, 610000); // 10min 10sec for test
+
+// Options object
+vibeTest('long task', async ({ runAgent }) => {
+  // ...
+}, { timeout: 600000 });
+```
+
+<Aside type="caution">
+  **Test timeout must be longer than agent timeout** to allow for cleanup and finalization.
+</Aside>
+
+### Annotations (Custom Milestones)
+
+Stream custom annotations to reporters:
+
+```typescript
+vibeTest('with annotations', async ({ runAgent, annotate }) => {
+  await annotate('Starting phase 1: Analysis');
+
+  const analyze = await runAgent({
+    prompt: '/analyze src/'
+  });
+
+  await annotate('Phase 1 complete', 'milestone', {
+    body: JSON.stringify({ filesAnalyzed: analyze.files.stats().total }),
+    contentType: 'application/json'
+  });
+
+  await annotate('Starting phase 2: Refactoring');
+
+  const refactor = await runAgent({
+    prompt: '/refactor based on analysis'
+  });
+
+  await annotate('All phases complete', 'success');
+});
+```
+
+Annotations appear in:
+- Terminal output (during test run)
+- HTML report (timeline view)
+
+---
+
+## Custom Matchers
+
+All custom matchers work on `RunResult` objects:
+
+```typescript
+vibeTest('using matchers', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/refactor' });
+
+  // File matchers
+  expect(result).toHaveChangedFiles(['src/**/*.ts']);
+  expect(result).toHaveNoDeletedFiles();
+
+  // Tool matchers
+  expect(result).toHaveUsedTool('Edit');
+  expect(result).toUseOnlyTools(['Edit', 'Read', 'Write']);
+
+  // Quality matchers
+  expect(result).toCompleteAllTodos();
+  expect(result).toHaveNoErrorsInLogs();
+
+  // Cost matchers
+  expect(result).toStayUnderCost(2.00);
+
+  // Rubric matcher (uses judge internally)
+  await expect(result).toPassRubric({
+    name: 'Quality',
+    criteria: [
+      { name: 'correct', description: 'Works correctly' }
+    ]
+  });
+});
+```
+
+See [Custom Matchers →](/api/utilities/matchers/) for complete reference.
+
+---
+
+## Examples
+
+### Simple Test
+
+```typescript
+vibeTest('create file', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Create a file called hello.txt with "Hello World"'
+  });
+
+  expect(result).toHaveChangedFiles(['hello.txt']);
+
+  const file = result.files.get('hello.txt');
+  const content = await file?.after?.text();
+  expect(content).toContain('Hello World');
+});
+```
+
+### Cost-Aware Test
+
+```typescript
+vibeTest('stay under budget', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    model: 'claude-3-5-haiku-latest', // Cheaper model
+    prompt: 'Simple task'
+  });
+
+  expect(result).toStayUnderCost(0.10);
+  console.log('Cost:', result.metrics.totalCostUsd);
+});
+```
+
+### Multi-Model Comparison
+
+```typescript
+vibeTest('compare models', async ({ runAgent, expect }) => {
+  const sonnet = await runAgent({
+    model: 'claude-3-5-sonnet-latest',
+    prompt: 'Refactor auth.ts'
+  });
+
+  const haiku = await runAgent({
+    model: 'claude-3-5-haiku-latest',
+    prompt: 'Refactor auth.ts'
+  });
+
+  console.log('Sonnet cost:', sonnet.metrics.totalCostUsd);
+  console.log('Haiku cost:', haiku.metrics.totalCostUsd);
+
+  // Both should complete
+  expect(sonnet).toCompleteAllTodos();
+  expect(haiku).toCompleteAllTodos();
+});
+```
+
+### Tool Restrictions
+
+```typescript
+vibeTest('restrict tools', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Read and summarize README.md',
+    allowedTools: ['Read'] // Only allow Read tool
+  });
+
+  expect(result).toUseOnlyTools(['Read']);
+  expect(result.tools.used('Write')).toBe(0);
+  expect(result.tools.used('Edit')).toBe(0);
+});
+```
+
+---
+
+## See Also
+
+- **[VibeTestContext →](/api/types/test-context/)** - Complete context interface
+- **[runAgent() →](/api/core/runagent/)** - Agent execution options
+- **[AgentExecution →](/api/types/agent-execution/)** - Watcher API
+- **[Custom Matchers →](/api/utilities/matchers/)** - All available matchers
+- **[judge() →](/api/core/judge/)** - LLM-based evaluation
+- **[Your First Test →](/getting-started/first-test/)** - Step-by-step tutorial
+
+---
+
+## Related Guides
+
+- **[Reactive Watchers →](/guides/testing/reactive-watchers/)** - Fail-fast patterns
+- **[Cumulative State →](/guides/testing/cumulative-state/)** - Multi-run state tracking
+- **[Matrix Testing →](/guides/testing/matrix-testing/)** - Benchmark multiple configurations
+- **[Using Judge →](/guides/evaluation/using-judge/)** - Quality evaluation patterns

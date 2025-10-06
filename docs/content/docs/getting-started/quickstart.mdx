@@ -1,0 +1,419 @@
+---
+title: 5-Minute Quickstart
+description: Write your first vibe-check test in under 5 minutes
+sidebar:
+  order: 2
+---
+
+import { Aside, Code, Steps } from '@astrojs/starlight/components';
+
+Welcome! This quickstart will get you from zero to running your first agent test in under 5 minutes.
+
+<Aside type="tip">
+  **Already installed vibe-check?** Great! If not, [install it first →](/getting-started/installation/)
+</Aside>
+
+## What You'll Build
+
+A simple test that:
+1. Runs a Claude Code agent
+2. Captures execution metrics automatically
+3. Validates the agent completed successfully
+4. Generates a cost report
+
+## Create Your First Test
+
+<Steps>
+
+1. **Create a test file**
+
+   Create `tests/quickstart.vibe.test.ts`:
+
+   ```typescript
+   import { vibeTest } from '@dao/vibe-check';
+
+   vibeTest('agent can execute simple task', async ({ runAgent, expect }) => {
+     const result = await runAgent({
+       prompt: 'Count from 1 to 5'
+     });
+
+     // Verify we got a result
+     expect(result).toBeDefined();
+     expect(result.metrics.totalCostUsd).toBeLessThan(1.00);
+   });
+   ```
+
+2. **Run the test**
+
+   ```bash
+   bun run vitest
+   # or: npm run vitest, pnpm vitest, yarn vitest
+   ```
+
+3. **See the results**
+
+   You should see output like:
+
+   ```
+   ✓ tests/quickstart.vibe.test.ts (1)
+     ✓ agent can execute simple task (2341ms)
+
+   Test Files  1 passed (1)
+        Tests  1 passed (1)
+      Duration  2.34s
+
+   Vibe Check Cost Summary
+   ─────────────────────────────
+   Total Cost: $0.0028
+   Total Tokens: 847
+
+   HTML Report: .vibe-artifacts/reports/index.html
+   ```
+
+</Steps>
+
+🎉 **Congratulations!** You just ran your first vibe-check test!
+
+---
+
+## Understanding the Test
+
+Let's break down what happened:
+
+### The `vibeTest` Function
+
+```typescript
+vibeTest('agent can execute simple task', async ({ runAgent, expect }) => {
+  // Test body
+});
+```
+
+- **`vibeTest`** is like Vitest's `test()` or `it()`, but with agent-specific context
+- **Test context** provides: `runAgent`, `expect`, `judge`, `annotate`, `task`
+- **Async by default** - all vibe tests are async (agents take time!)
+
+### The `runAgent` Fixture
+
+```typescript
+const result = await runAgent({
+  prompt: 'Count from 1 to 5'
+});
+```
+
+- **Executes a Claude Code agent** with the given prompt
+- **Automatically captures**:
+  - Conversation messages
+  - Git state (before/after)
+  - File changes
+  - Tool calls
+  - Metrics (cost, tokens, duration)
+  - Timeline events
+- **Returns a `RunResult`** with all captured data
+
+### The `RunResult` Object
+
+```typescript
+expect(result).toBeDefined();
+expect(result.metrics.totalCostUsd).toBeLessThan(1.00);
+```
+
+The `result` contains everything from the agent run:
+
+| Field | Description |
+|-------|-------------|
+| `result.bundleDir` | Path to on-disk artifacts (`.vibe-artifacts/bundles/{test-id}/`) |
+| `result.metrics` | Cost, tokens, duration, tool calls, files changed |
+| `result.messages` | Conversation history (lazy-loaded) |
+| `result.files` | File changes with before/after content |
+| `result.tools` | Tool calls (Edit, Bash, Read, etc.) |
+| `result.git` | Git state and diffs |
+| `result.todos` | TODO items and their completion status |
+| `result.timeline` | Unified event timeline |
+
+---
+
+## Exploring the RunResult
+
+Let's write a more detailed test that explores what vibe-check captured:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('explore captured context', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Create a file called greeting.txt with "Hello World"'
+  });
+
+  // 1. Check metrics
+  console.log('Cost:', result.metrics.totalCostUsd);
+  console.log('Tokens:', result.metrics.totalTokens);
+  console.log('Duration:', result.metrics.durationMs, 'ms');
+  console.log('Tool calls:', result.metrics.toolCalls);
+
+  // 2. Check file changes
+  const fileStats = result.files.stats();
+  console.log('Files changed:', fileStats);
+  // Output: { added: 1, modified: 0, deleted: 0, renamed: 0, total: 1 }
+
+  // 3. Get specific file
+  const greeting = result.files.get('greeting.txt');
+  if (greeting) {
+    console.log('File path:', greeting.path);
+    console.log('Change type:', greeting.changeType); // 'added'
+
+    // Load file content (lazy-loaded from disk)
+    const content = await greeting.after?.text();
+    expect(content).toContain('Hello World');
+  }
+
+  // 4. Check tool usage
+  const toolsUsed = result.tools.all();
+  console.log('Tools used:', toolsUsed.map(t => t.name));
+  // Example: ['Write', 'Bash']
+
+  const writeToolCount = result.tools.used('Write');
+  expect(writeToolCount).toBeGreaterThan(0);
+
+  // 5. Check git state (if workspace is a git repo)
+  if (result.git.before) {
+    console.log('Git commit before:', result.git.before.head);
+    console.log('Git commit after:', result.git.after?.head);
+    console.log('Files changed:', result.git.changedCount);
+  }
+});
+```
+
+<Aside type="tip">
+  **All data is lazy-loaded!**
+
+  Heavy data (file contents, messages) stays on disk until you access it. This keeps memory usage low even for tests that change hundreds of files.
+</Aside>
+
+---
+
+## Using Custom Matchers
+
+Vibe-check provides custom matchers for common assertions:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('using custom matchers', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Create a README.md file'
+  });
+
+  // File-based matchers
+  expect(result).toHaveChangedFiles(['README.md']);
+  expect(result).toHaveNoDeletedFiles();
+
+  // Tool-based matchers
+  expect(result).toHaveUsedTool('Write');
+
+  // Cost matchers
+  expect(result).toStayUnderCost(0.50); // Fails if cost > $0.50
+
+  // Quality matchers (requires TODOs in prompt)
+  // expect(result).toCompleteAllTodos();
+});
+```
+
+See all available matchers in the [Custom Matchers Guide →](/guides/testing/custom-matchers/)
+
+---
+
+## Viewing the HTML Report
+
+After running tests, open the HTML report to see:
+
+- **Conversation transcript** - Full agent chat history
+- **Tool call timeline** - Visual timeline of all tool invocations
+- **File diffs** - Before/after views of changed files
+- **Cost breakdown** - Per-test cost and token usage
+- **TODO tracking** - See which TODOs were completed
+
+```bash
+open .vibe-artifacts/reports/index.html
+```
+
+<Aside type="note">
+  The HTML report is generated automatically by the `VibeHtmlReporter` configured in `defineVibeConfig()`.
+</Aside>
+
+---
+
+## Cost Tracking
+
+Vibe-check automatically tracks costs:
+
+**Terminal Reporter:**
+```
+Vibe Check Cost Summary
+─────────────────────────────
+Total Cost: $0.0028
+Total Tokens: 847
+```
+
+**Per-Test Cost:**
+```typescript
+vibeTest('check cost', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Simple task',
+    model: 'claude-3-5-haiku-latest' // Use cheaper model
+  });
+
+  console.log('This test cost:', result.metrics.totalCostUsd);
+  expect(result).toStayUnderCost(0.10);
+});
+```
+
+---
+
+## What's Auto-Captured?
+
+When you run an agent, vibe-check **automatically captures**:
+
+### ✅ Git State
+- Commit hash before/after
+- Dirty status
+- File diffs (`git diff --name-status`)
+
+### ✅ File Changes
+- All files added/modified/deleted/renamed
+- Full before/after content (content-addressed storage)
+- Diff statistics (lines added/deleted)
+
+### ✅ Tool Calls
+- Correlated from PreToolUse/PostToolUse hooks
+- Input parameters
+- Output/results
+- Success/failure status
+- Duration
+
+### ✅ Metrics
+- Total tokens (input + output)
+- Total cost (USD)
+- Wall clock duration
+- Tool call count
+- Files changed count
+
+### ✅ Timeline
+- Unified event stream (SDK events + hooks)
+- Timestamps for all events
+- Used by reporters for visualization
+
+### ✅ TODOs
+- TODO items from Claude Code
+- Status (pending/in_progress/completed)
+
+---
+
+## Next Steps
+
+You've learned the basics! Now explore:
+
+<Aside type="tip" title="Choose Your Path">
+
+**For Testing & Evaluation:**
+- [Write Your First Test →](/getting-started/first-test/) - Deep dive with matchers, watchers, and judge
+- [Custom Matchers Guide →](/guides/testing/custom-matchers/) - All available assertions
+- [Evaluation with Judge →](/getting-started/first-evaluation/) - LLM-based quality evaluation
+
+**For Automation:**
+- [Build Your First Workflow →](/getting-started/first-automation/) - Multi-stage pipelines
+- [Workflow Patterns →](/guides/automation/building-workflows/) - Common automation patterns
+
+**For API Reference:**
+- [vibeTest API →](/api/core/vibetest/) - Complete API reference
+- [RunResult Interface →](/api/types/run-result/) - All captured data fields
+
+</Aside>
+
+---
+
+## Common Patterns
+
+### Run Multiple Agents
+
+```typescript
+vibeTest('multi-agent workflow', async ({ runAgent, expect }) => {
+  // First agent: analyze
+  const analysis = await runAgent({
+    prompt: 'Analyze the code structure'
+  });
+
+  // Second agent: refactor (using first result as context)
+  const refactor = await runAgent({
+    prompt: 'Refactor based on analysis',
+    context: analysis // Pass previous result
+  });
+
+  expect(refactor).toHaveChangedFiles(['src/**/*.ts']);
+});
+```
+
+### Use Different Models
+
+```typescript
+vibeTest('model comparison', async ({ runAgent, expect }) => {
+  const sonnetResult = await runAgent({
+    model: 'claude-3-5-sonnet-latest',
+    prompt: 'Refactor this code'
+  });
+
+  console.log('Sonnet cost:', sonnetResult.metrics.totalCostUsd);
+});
+```
+
+### Set Timeouts
+
+```typescript
+vibeTest('long-running task', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Complex refactoring task',
+    timeoutMs: 600000, // 10 minutes
+    maxTurns: 20       // Allow more agent turns
+  });
+
+  expect(result).toCompleteAllTodos();
+}, { timeout: 650000 }); // Vitest timeout slightly higher
+```
+
+---
+
+## Troubleshooting
+
+### Test times out
+
+**Solution:** Increase timeout for both vibe-check and Vitest:
+
+```typescript
+vibeTest('task', async ({ runAgent }) => {
+  const result = await runAgent({
+    timeoutMs: 300000 // 5 minutes for agent
+  });
+}, { timeout: 310000 }); // 5min 10sec for test
+```
+
+### No files captured
+
+**Cause:** Workspace might not be a git repository
+
+**Solution:** Ensure your test runs in a git repository, or specify workspace:
+
+```typescript
+const result = await runAgent({
+  workspace: '/path/to/git/repo',
+  prompt: 'Task'
+});
+```
+
+### Cost tracker shows $0.00
+
+**Cause:** Using a model without cost tracking, or SDK didn't report usage
+
+**Solution:** Check `result.metrics.totalTokens` - if also 0, the SDK may not have tracked usage properly.
+
+---
+
+Ready to write real tests? Continue to [Your First Test →](/getting-started/first-test/)

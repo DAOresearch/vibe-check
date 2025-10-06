@@ -1,0 +1,587 @@
+---
+title: Your First Test
+description: Build a complete test with matchers, watchers, and LLM-based evaluation
+sidebar:
+  order: 3
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+In this tutorial, you'll write a real-world test that validates agent behavior using **custom matchers**, **reactive watchers** for fail-fast testing, and **LLM-based evaluation** with the judge.
+
+<Aside type="tip">
+  **Completed the Quickstart?** Great! This builds on those concepts. If not, start with the [Quickstart →](/getting-started/quickstart/)
+</Aside>
+
+## What You'll Build
+
+A test that validates an agent can:
+1. Refactor code with proper test coverage
+2. Complete all TODOs without leaving the code in a broken state
+3. Stay within a cost budget
+4. Meet quality standards (validated by an LLM judge)
+
+We'll use:
+- **Custom matchers** - `toCompleteAllTodos()`, `toHaveChangedFiles()`, `toStayUnderCost()`
+- **Reactive watchers** - Fail fast if agent violates constraints during execution
+- **Judge** - LLM-based quality evaluation against a rubric
+
+---
+
+## Scenario: Code Refactoring Test
+
+Let's test an agent that refactors authentication code and adds tests.
+
+### Step 1: Write the Test
+
+Create `tests/refactor.vibe.test.ts`:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('refactor adds comprehensive tests', async ({ runAgent, expect, judge }) => {
+  const result = await runAgent({
+    prompt: `
+      Refactor src/auth.ts to:
+      - Add TypeScript strict types
+      - Add comprehensive unit tests
+      - Remove any TODO comments
+
+      Budget: Stay under $2.00
+    `
+  });
+
+  // 1. Check basic completion
+  expect(result).toCompleteAllTodos();
+
+  // 2. Verify file changes
+  expect(result).toHaveChangedFiles([
+    'src/auth.ts',       // Original file
+    'src/auth.test.ts'   // New test file
+  ]);
+
+  // 3. No files should be deleted
+  expect(result).toHaveNoDeletedFiles();
+
+  // 4. Verify cost budget
+  expect(result).toStayUnderCost(2.00);
+
+  // 5. Check specific file content
+  const authTest = result.files.get('src/auth.test.ts');
+  expect(authTest).toBeDefined();
+
+  const testContent = await authTest?.after?.text();
+  expect(testContent).toContain('describe');
+  expect(testContent).toContain('expect');
+});
+```
+
+<Aside type="note">
+  **Custom Matchers Explained:**
+  - `toCompleteAllTodos()` - Fails if any TODOs are pending/in_progress
+  - `toHaveChangedFiles(paths)` - Fails if expected files weren't changed (supports globs)
+  - `toHaveNoDeletedFiles()` - Fails if any files were deleted
+  - `toStayUnderCost(maxUsd)` - Fails if total cost exceeds budget
+</Aside>
+
+### Step 2: Run the Test
+
+```bash
+bun run vitest tests/refactor.vibe.test.ts
+```
+
+You should see:
+
+```
+✓ tests/refactor.vibe.test.ts (1)
+  ✓ refactor adds comprehensive tests (18.3s)
+
+Test Files  1 passed (1)
+     Tests  1 passed (1)
+
+Vibe Check Cost Summary
+─────────────────────────────
+Total Cost: $0.42
+Total Tokens: 12,847
+```
+
+---
+
+## Step 3: Add Reactive Watchers (Fail Fast)
+
+Waiting for the agent to finish only to discover it violated a constraint is inefficient. Use **reactive watchers** to fail fast **during** execution.
+
+### Why Watchers?
+
+**Problem:** Agent deletes critical database files 2 minutes into a 5-minute run. Test fails after 5 minutes.
+
+**Solution:** Watcher catches the violation immediately and aborts the execution.
+
+### Add Watchers to Your Test
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('refactor with fail-fast watchers', async ({ runAgent, expect }) => {
+  // Start execution (returns AgentExecution, not RunResult)
+  const execution = runAgent({
+    prompt: 'Refactor src/auth.ts --add-tests'
+  });
+
+  // Register watchers for real-time assertions
+  execution.watch(({ files, metrics }) => {
+    // Fail fast if agent touches database directory
+    const changedPaths = files.changed().map(f => f.path);
+    expect(changedPaths).not.toContain('database/');
+
+    // Fail fast if cost exceeds budget
+    if (metrics.totalCostUsd && metrics.totalCostUsd > 2.0) {
+      throw new Error(`Cost exceeded: $${metrics.totalCostUsd}`);
+    }
+  });
+
+  // Wait for completion
+  const result = await execution;
+
+  // Final assertions (only run if watchers never failed)
+  expect(result).toCompleteAllTodos();
+  expect(result).toHaveChangedFiles(['src/auth.ts', 'src/auth.test.ts']);
+});
+```
+
+<Aside type="caution" title="When Watchers Run">
+  Watchers execute **sequentially** after:
+  - Each tool call completes (PostToolUse hook)
+  - Significant cost updates (every N tokens)
+
+  They **do not** run in parallel, so there are no race conditions. If any watcher throws, execution aborts immediately.
+</Aside>
+
+### Multiple Watchers
+
+You can register multiple watchers. They execute **sequentially** in registration order:
+
+```typescript
+const execution = runAgent({ prompt: '/refactor' });
+
+// Watcher 1: File constraints
+execution.watch(({ files }) => {
+  const changed = files.changed().map(f => f.path);
+  expect(changed).not.toContain('database/');
+  expect(changed).not.toContain('.env');
+});
+
+// Watcher 2: Cost constraints
+execution.watch(({ metrics }) => {
+  expect(metrics.totalCostUsd).toBeLessThan(5.0);
+});
+
+// Watcher 3: Tool failures
+execution.watch(({ tools }) => {
+  const failed = tools.failed();
+  expect(failed.length).toBeLessThan(3); // Max 2 failures allowed
+});
+
+const result = await execution;
+```
+
+<Aside type="tip">
+  **Best Practice:** Use watchers for **invariants** (things that must NEVER happen). Use final assertions for **outcomes** (things that should happen by the end).
+</Aside>
+
+---
+
+## Step 4: Add LLM-Based Evaluation with Judge
+
+Custom matchers validate structure and metrics, but what about **code quality**? Use the **judge** to evaluate subjective criteria with an LLM.
+
+### What is Judge?
+
+The **judge** is a specialized agent that:
+1. Takes your **rubric** (evaluation criteria)
+2. Reads the **RunResult** (code changes, tool calls, etc.)
+3. Returns a **structured judgment** (passed/failed + scores)
+
+### Add Judge to Your Test
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('refactor with quality evaluation', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: 'Refactor src/auth.ts --add-tests'
+  });
+
+  // Use judge to evaluate code quality
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Code Quality Rubric',
+      criteria: [
+        {
+          name: 'has_tests',
+          description: 'Added comprehensive unit tests with good coverage',
+          weight: 0.4
+        },
+        {
+          name: 'type_safety',
+          description: 'Uses TypeScript strict types appropriately',
+          weight: 0.3
+        },
+        {
+          name: 'no_todos',
+          description: 'No TODO comments left in code',
+          weight: 0.2
+        },
+        {
+          name: 'readable',
+          description: 'Code is clean and well-documented',
+          weight: 0.1
+        }
+      ],
+      passThreshold: 0.7 // 70% score to pass
+    }
+  });
+
+  // Check if judgment passed
+  expect(judgment.passed).toBe(true);
+
+  // Inspect individual criteria scores
+  console.log('Quality Scores:');
+  for (const criterion of judgment.criteria) {
+    console.log(`  ${criterion.name}: ${criterion.score}/1.0`);
+  }
+
+  console.log(`Overall: ${judgment.overallScore}/1.0`);
+});
+```
+
+### Understanding the Rubric
+
+```typescript
+{
+  name: 'Code Quality Rubric',
+  criteria: [
+    {
+      name: 'has_tests',           // Unique identifier
+      description: 'Added tests',  // What to evaluate
+      weight: 0.4                  // 40% of overall score
+    },
+    // ...
+  ],
+  passThreshold: 0.7  // Minimum score to pass (0.0 - 1.0)
+}
+```
+
+**How it works:**
+1. Judge reads file changes from `result.files`
+2. Evaluates each criterion (0.0 - 1.0 score)
+3. Computes weighted overall score
+4. Returns `passed: true` if score ≥ passThreshold
+
+<Aside type="tip">
+  **Use Judge When:**
+  - Evaluating code quality (readability, style, best practices)
+  - Comparing multiple approaches (which refactor is better?)
+  - Subjective criteria that can't be easily checked with matchers
+
+  **Don't Use Judge For:**
+  - Simple checks (file exists, test passes) - use matchers
+  - Fast feedback loops - judge adds latency and cost
+</Aside>
+
+---
+
+## Complete Example: Putting It All Together
+
+Here's a complete test using all features:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('comprehensive refactoring validation', async ({ runAgent, judge, expect }) => {
+  // 1. Start execution with watchers for fail-fast
+  const execution = runAgent({
+    prompt: `
+      Refactor src/auth.ts:
+      - Add TypeScript strict types
+      - Add comprehensive unit tests
+      - Remove TODO comments
+      - Don't modify database/ directory
+    `
+  });
+
+  // 2. Register reactive watchers
+  execution
+    .watch(({ files }) => {
+      // Fail fast if protected files touched
+      const changed = files.changed().map(f => f.path);
+      expect(changed).not.toContain('database/');
+      expect(changed).not.toContain('.env');
+    })
+    .watch(({ tools }) => {
+      // Fail fast if too many tool failures
+      expect(tools.failed().length).toBeLessThan(3);
+    })
+    .watch(({ metrics }) => {
+      // Fail fast if cost exceeded
+      expect(metrics.totalCostUsd).toBeLessThan(3.0);
+    });
+
+  // 3. Wait for completion
+  const result = await execution;
+
+  // 4. Structural assertions (fast)
+  expect(result).toCompleteAllTodos();
+  expect(result).toHaveChangedFiles(['src/auth.ts', 'src/auth.test.ts']);
+  expect(result).toHaveNoDeletedFiles();
+  expect(result).toStayUnderCost(2.50);
+
+  // 5. Content validation
+  const authFile = result.files.get('src/auth.ts');
+  const authTestFile = result.files.get('src/auth.test.ts');
+
+  expect(authFile).toBeDefined();
+  expect(authTestFile).toBeDefined();
+
+  const authContent = await authFile?.after?.text();
+  const testContent = await authTestFile?.after?.text();
+
+  expect(authContent).not.toContain('TODO');
+  expect(testContent).toContain('describe(');
+  expect(testContent).toContain('expect(');
+
+  // 6. Tool usage validation
+  const writeToolUses = result.tools.used('Write');
+  expect(writeToolUses).toBeGreaterThan(0);
+
+  // 7. Quality evaluation with judge (slower, but thorough)
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Refactor Quality',
+      criteria: [
+        {
+          name: 'has_tests',
+          description: 'Added comprehensive unit tests with edge cases',
+          weight: 0.4
+        },
+        {
+          name: 'type_safety',
+          description: 'Uses TypeScript strict mode properly',
+          weight: 0.3
+        },
+        {
+          name: 'clean_code',
+          description: 'Code is readable and well-structured',
+          weight: 0.3
+        }
+      ],
+      passThreshold: 0.75
+    }
+  });
+
+  expect(judgment.passed).toBe(true);
+
+  // Log quality report
+  console.log('\n📊 Quality Report:');
+  for (const criterion of judgment.criteria) {
+    const icon = criterion.score >= 0.7 ? '✅' : '⚠️';
+    console.log(`${icon} ${criterion.name}: ${criterion.score.toFixed(2)}`);
+  }
+  console.log(`\n🎯 Overall Score: ${judgment.overallScore.toFixed(2)}`);
+});
+```
+
+---
+
+## All Available Custom Matchers
+
+Here's the complete list of matchers you can use:
+
+### File Matchers
+
+```typescript
+// Assert specific files changed (supports globs)
+expect(result).toHaveChangedFiles(['src/**/*.ts', 'tests/**/*.test.ts']);
+
+// Assert no files deleted
+expect(result).toHaveNoDeletedFiles();
+```
+
+### Tool Matchers
+
+```typescript
+// Assert specific tool was used
+expect(result).toHaveUsedTool('Edit');
+
+// Assert tool was used minimum number of times
+expect(result).toHaveUsedTool('Bash', { min: 2 });
+
+// Assert only allowed tools were used
+expect(result).toUseOnlyTools(['Edit', 'Read', 'Write']);
+```
+
+### Quality Matchers
+
+```typescript
+// Assert all TODOs completed
+expect(result).toCompleteAllTodos();
+
+// Assert no errors in logs
+expect(result).toHaveNoErrorsInLogs();
+
+// Assert rubric passes (uses judge internally)
+await expect(result).toPassRubric({
+  name: 'Quality',
+  criteria: [
+    { name: 'correct', description: 'Works correctly' }
+  ]
+});
+```
+
+### Cost Matchers
+
+```typescript
+// Assert cost stayed under budget
+expect(result).toStayUnderCost(5.00); // Max $5.00
+```
+
+### Hook Data Matchers
+
+```typescript
+// Assert all hooks were captured successfully
+// (Useful for debugging hook capture issues)
+expect(result).toHaveCompleteHookData();
+```
+
+---
+
+## Best Practices
+
+### ✅ DO: Use Matchers for Structure
+
+```typescript
+expect(result).toHaveChangedFiles(['src/index.ts']);
+expect(result).toCompleteAllTodos();
+expect(result).toStayUnderCost(1.0);
+```
+
+### ✅ DO: Use Watchers for Invariants
+
+```typescript
+execution.watch(({ files }) => {
+  // Never touch database
+  expect(files.changed()).not.toContain('database/');
+});
+```
+
+### ✅ DO: Use Judge for Quality
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Code Quality',
+    criteria: [
+      { name: 'readable', description: 'Code is clean' }
+    ]
+  }
+});
+expect(judgment.passed).toBe(true);
+```
+
+### ❌ DON'T: Use Judge for Simple Checks
+
+```typescript
+// ❌ Bad: Using judge for simple checks
+await judge(result, {
+  rubric: {
+    criteria: [
+      { name: 'file_exists', description: 'README.md exists' }
+    ]
+  }
+});
+
+// ✅ Good: Use matchers instead
+expect(result).toHaveChangedFiles(['README.md']);
+```
+
+### ❌ DON'T: Register Watchers After `await`
+
+```typescript
+// ❌ Bad: Watchers must be registered before await
+const result = await runAgent({ prompt: '...' });
+result.watch(() => {}); // Error: can't watch completed execution
+
+// ✅ Good: Register before await
+const execution = runAgent({ prompt: '...' });
+execution.watch(() => {});
+const result = await execution;
+```
+
+---
+
+## Debugging Failed Tests
+
+### Check the HTML Report
+
+Open `.vibe-artifacts/reports/index.html` to see:
+- Full conversation transcript
+- Tool call timeline
+- File diffs
+- Error messages
+
+### Inspect Captured Data
+
+```typescript
+vibeTest('debug failed test', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '...' });
+
+  // Print metrics
+  console.log('Metrics:', result.metrics);
+
+  // Print file changes
+  console.log('Files changed:', result.files.changed().map(f => f.path));
+
+  // Print tool calls
+  console.log('Tools used:', result.tools.all().map(t => t.name));
+
+  // Print TODOs
+  console.log('TODOs:', result.todos);
+
+  // Check hook capture
+  console.log('Hook capture:', result.hookCaptureStatus);
+});
+```
+
+### Check Hook Capture Status
+
+If tests fail unexpectedly, verify hooks were captured:
+
+```typescript
+expect(result.hookCaptureStatus.complete).toBe(true);
+
+if (!result.hookCaptureStatus.complete) {
+  console.log('Missing events:', result.hookCaptureStatus.missingEvents);
+  console.log('Warnings:', result.hookCaptureStatus.warnings);
+}
+```
+
+---
+
+## Next Steps
+
+You've learned how to write comprehensive tests! Now explore:
+
+- **[Build Your First Workflow →](/getting-started/first-automation/)** - Multi-stage automation pipelines
+- **[First Evaluation →](/getting-started/first-evaluation/)** - Matrix testing and benchmarking
+- **[Custom Matchers Guide →](/guides/testing/custom-matchers/)** - Deep dive into all matchers
+- **[Reactive Watchers Guide →](/guides/testing/reactive-watchers/)** - Advanced watcher patterns
+- **[Using Judge →](/guides/evaluation/using-judge/)** - Complete judge documentation
+
+---
+
+## Reference
+
+- **[vibeTest API →](/api/core/vibetest/)** - Complete API reference
+- **[RunResult Interface →](/api/types/run-result/)** - All captured data
+- **[AgentExecution →](/api/types/agent-execution/)** - Watcher API
+- **[Custom Matchers →](/api/utilities/matchers/)** - Matcher reference
