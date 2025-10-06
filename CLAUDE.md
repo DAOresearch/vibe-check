@@ -116,7 +116,7 @@ Both APIs share primitives (`defineAgent`, `prompt`, `runAgent`, `judge`) but ha
 - Scales to large data (100+ file changes)
 - Reporters read artifacts from disk (no IPC overhead)
 - Test code gets ergonomic lazy API (no memory bloat)
-- See `deep-research-report.md` Part 2.4 for full rationale
+- See technical-specification.md v1.4 Section 3 (Storage Architecture) for full details
 
 #### 3. Claude Code Hooks Integration
 
@@ -267,11 +267,11 @@ defineTestSuite({
 ├── .claude/
 │   ├── docs/
 │   │   └── vibecheck/
-│   │       ├── implementation-plan.mdx           # Detailed implementation roadmap
-│   │       ├── vitest-deep-research-prompt-v2.md # Research prompt for architecture
-│   │       └── deep-research-report.md           # Research findings
+│   │       ├── technical-specification.md        # ⭐ PRIMARY SPEC v1.4 (Implementation Ready)
+│   │       └── docs-structure-plan-alternative.md # Alternative documentation structure
 │   ├── agents/             # Claude Code agent definitions
-│   ├── commands/           # Claude Code slash commands
+│   ├── commands/
+│   │   └── spec/          # Specification workflow commands
 │   └── tasks/              # Task definitions
 ├── package.json
 └── README.md               # User-facing documentation
@@ -310,33 +310,27 @@ This is a **design-first** project. The following areas need implementation:
 
 The `.claude/docs/vibecheck/` directory contains:
 
-- **implementation-plan.mdx** - Step-by-step implementation guide with:
-  - API signatures
-  - Code skeletons
-  - Test strategy
-  - Acceptance criteria
-  - Trade-off discussions
+**Primary Specification (v1.4):**
+- **technical-specification.md v1.4** - Complete authoritative specification (implementation-ready)
+  - All API signatures, types, and interfaces (Section 1)
+  - Complete implementation guidance (Section 6)
+  - Error handling patterns (Section 7)
+  - Storage contracts and bundle structure (Section 3)
+  - All 53 issues resolved (Phase 2 + Phase 2.1)
+  - Battle-tested through 2 comprehensive audit cycles
 
-- **vitest-deep-research-prompt-v2.md** - Research prompt for designing:
-  - RunContext architecture
-  - Context manager implementation
-  - Storage strategy (task.meta vs fixture)
-  - Dual API design (vibeTest + vibeWorkflow)
-  - Workspace context placement
-  - Loop/iteration patterns
-
-- **deep-research-report.md** - Comprehensive Vitest research covering:
-  - Vitest API surface exploration
-  - Composition patterns
-  - Automation strategies
-  - Reporting innovations
+**Supporting Documentation:**
+- **docs-structure-plan-alternative.md** - Alternative documentation structure planning
+  - Diátaxis framework application
+  - 47 pages of user-facing documentation
+  - Progressive learning paths
 
 ## Development Workflow
 
 ### Adding New Features
 
-1. **Read implementation plan** (`.claude/docs/vibecheck/implementation-plan.mdx`)
-2. **Follow API design** from research documents
+1. **Read technical specification** (`.claude/docs/vibecheck/technical-specification.md` v1.4)
+2. **Follow implementation guidance** from Section 6 (Key Algorithms)
 3. **Maintain API simplicity** - Users never see Vitest internals
 4. **Auto-capture RunContext** - No manual artifact management
 5. **Test with Vitest** - Use Vitest for self-testing
@@ -356,26 +350,28 @@ The `.claude/docs/vibecheck/` directory contains:
 
 ## Critical Design Decisions
 
-Research from `deep-research-report.md` has answered most critical questions:
+All critical design decisions are documented in technical-specification.md v1.4:
 
-1. ✅ **RunResult interface** - Complete TypeScript interface designed (see report Part 7.1)
+1. ✅ **RunResult interface** - Complete TypeScript interface (Spec Section 1.1)
    - Lazy file accessors, git state, tool calls, timeline, metrics
-2. ✅ **Storage strategy** - **Hybrid** (disk RunBundle + thin task.meta, see report Part 2.4)
-3. ✅ **Context manager** - ContextManager class with capture → process → inject flow (see report Part 2.2)
-4. ✅ **Memory management** - Lazy loading with content-addressed storage (see report Part 2.6)
-5. ✅ **Workspace context** - **Both with override** (default at test level, override at runAgent, see report Part 7.4)
-6. ✅ **Loop patterns** - `until()` helper in `vibeWorkflow` context (see report Part 7.3)
-7. ✅ **API naming** - **`vibeWorkflow`** chosen over `vibePipeline` (see report Part 7.3)
+2. ✅ **Storage strategy** - **Hybrid** (disk RunBundle + thin task.meta, Spec Section 3)
+3. ✅ **Context manager** - ContextManager class with capture → process → inject flow (Spec Section 4.2)
+4. ✅ **Memory management** - Lazy loading with content-addressed storage (Spec Section 8)
+5. ✅ **Workspace context** - **Both with override** (default at test level, override at runAgent, Spec Section 2.4)
+6. ✅ **Loop patterns** - `until()` helper in `vibeWorkflow` context (Spec Section 2.3)
+7. ✅ **API naming** - **`vibeWorkflow`** chosen over `vibePipeline` (Spec Section 2.3)
 
 **Implementation Status:**
-- ✅ All critical design decisions finalized (see `.claude/docs/vibecheck/finalized-decisions.md`)
-- ✅ Documentation complete for user-facing APIs
-- 🚧 Implementation in progress (see implementation-plan.mdx for roadmap)
+- ✅ **53 specification issues resolved** (Phase 2: 24 issues, Phase 2.1: 29 issues)
+- ✅ **All design decisions finalized** (5 critical architectural questions)
+- ✅ **Complete type system** (Section 1: all interfaces, types, and constants)
+- ✅ **Full implementation guidance** (Section 6: algorithms and patterns)
+- ✅ **Ready for Implementation** - All APIs, types, and algorithms fully specified
 
-**Still to decide (implementation details):**
-- RunBundle cleanup/retention policy (TTL vs manual cleanup)
-- Test strategy for ContextManager (unit vs integration)
-- Error handling patterns for hook capture failures (retry, fallback, logging)
+**All Implementation Details Resolved:**
+- ✅ RunBundle cleanup policy: 30-day retention with configurable override (Spec Section 3.5)
+- ✅ Test strategy: Unit + integration tests for ContextManager (Spec Section 9.2)
+- ✅ Error handling: Graceful degradation with warnings for hook failures (Spec Section 7)
 
 ## Working with Claude Code Hooks
 
@@ -399,10 +395,19 @@ When implementing hook capture:
 
 ## Notes for Future Claude Code Instances
 
-- This project is in **design phase** - implementation is minimal
-- **Start with:** `.claude/docs/vibecheck/implementation-plan.mdx` for roadmap
-- **API decisions:** Refer to research documents before implementing
-- **RunContext is central:** Everything auto-captures, users never manually manage
-- **Dual API:** Plan for both vibeTest (evaluation) and vibeWorkflow (automation)
-- **Vitest v3 only:** Pin version, use stable fixture/annotation APIs
-- **DX above all:** Hide Vitest complexity, expose simple primitives
+- **Project Status:** Specification complete (v1.4) - ready for implementation
+- **Primary Reference:** `.claude/docs/vibecheck/technical-specification.md` v1.4 (authoritative spec)
+- **Start Implementation:** Follow technical-specification.md Section 5.3 (file structure)
+- **API decisions:** All finalized - see "All Design Decisions Finalized" section above
+- **Specification History:**
+  - Phase 1: Design decisions (5 critical questions resolved)
+  - Phase 2: Specification fixes (24 issues, v1.3 → v1.4)
+  - Phase 2.1: Deep audit fixes (29 issues, v1.4-beta.1 → v1.4-beta.4)
+  - Total: 53 issues resolved, specification battle-tested
+- **Key Principles (Never Compromise):**
+  - **RunContext is central:** Everything auto-captures, users never manually manage
+  - **Dual API:** vibeTest (evaluation) + vibeWorkflow (automation)
+  - **Vitest v3 only:** Pin version, use stable fixture/annotation APIs
+  - **DX above all:** Hide Vitest complexity, expose simple primitives
+  - **Graceful degradation:** Hook failures never fail tests (log warnings only)
+  - **Type safety:** Strict TypeScript, no `any` types
