@@ -3,7 +3,7 @@
 **Last Updated:** 2025-10-06
 **Branch:** `sculptor/create-vibecheck-docs-plan`
 
-## Status: Phase 2 Complete ✅
+## Status: Phase 3 Complete ✅
 
 ### Completed Phases
 
@@ -34,46 +34,27 @@
 
 **Commit:** `1ad1568` - "fix(docs): explicitly configure API Reference sidebar structure"
 
+#### Phase 3: Testing Guides (4 pages) ✅
+- ✅ `guides/testing/reactive-watchers.mdx` - Fail-fast assertions with AgentExecution.watch() (521 lines)
+- ✅ `guides/testing/cumulative-state.mdx` - Multi-run state tracking and aggregation (601 lines)
+- ✅ `guides/testing/custom-matchers.mdx` - All matchers with usage examples (548 lines)
+- ✅ `guides/testing/matrix-testing.mdx` - Cartesian product testing with defineTestSuite (601 lines)
+- ✅ Updated `astro.config.mjs` to add Guides section to sidebar
+
+**Commit:** `[pending]` - "docs: implement Phase 3 documentation (testing guides)"
+
 ### Overall Progress
 
-**Pages Created:** 12 / 47 (25.5%)
-**Lines Written:** 4,829 lines
-**Token Usage:** ~114K / 200K (57%)
+**Pages Created:** 16 / 47 (34.0%)
+**Lines Written:** 7,100 lines (4,829 + 2,271)
+**Token Usage:** ~134K / 200K (67%)
 
 ---
 
 ## Remaining Work
 
-### Phase 3: Testing Guides (4 pages)
-**Location:** `docs/content/docs/guides/testing/`
-
-- [ ] `reactive-watchers.mdx` (400-500 lines)
-  - Problem/solution format
-  - PartialRunResult interface
-  - Execution guarantees
-  - Common patterns
-  - **Spec:** Section 1.2, 4.2.1
-
-- [ ] `cumulative-state.mdx` (350-400 lines)
-  - Multi-run state tracking
-  - Accessing files/tools/timeline
-  - Aggregation patterns
-  - **Spec:** Section 1.1 (VibeTestContext)
-
-- [ ] `custom-matchers.mdx` (300-350 lines)
-  - All available matchers
-  - Usage examples
-  - Creating custom matchers
-  - **Spec:** Section 2.8
-
-- [ ] `matrix-testing.mdx` (300-350 lines)
-  - defineTestSuite usage
-  - Cartesian product
-  - Comparing configurations
-  - **Spec:** Section 2.6
-
-**Estimated Effort:** 10 hours
-**Estimated Tokens:** ~8-10K
+### Phase 4: Advanced Guides (10 pages)
+**Location:** `docs/content/docs/guides/{automation,evaluation,advanced}/`
 
 ### Phase 4: Advanced Guides (10 pages)
 **Location:** `docs/content/docs/guides/{automation,evaluation,advanced}/`
@@ -166,9 +147,9 @@
 
 ## Total Remaining
 
-**Pages:** 35 / 47 remaining (74.5%)
-**Estimated Total Tokens:** ~44-55K tokens
-**Current Budget:** ~86K tokens remaining ✅
+**Pages:** 31 / 47 remaining (66.0%)
+**Estimated Total Tokens:** ~36-45K tokens
+**Current Budget:** ~66K tokens remaining ✅
 
 ---
 
@@ -195,13 +176,12 @@
 
 ---
 
-## Next Steps (Phase 3)
+## Next Steps (Phase 4)
 
-Start with testing guides (easiest next phase):
-1. Create `guides/testing/` directory
-2. Write reactive-watchers.mdx (most requested feature)
-3. Write cumulative-state.mdx
-4. Write custom-matchers.mdx
-5. Write matrix-testing.mdx
+Continue with advanced guides:
+1. Create `guides/automation/`, `guides/evaluation/`, `guides/advanced/` directories
+2. Write automation guides (building-workflows, loop-patterns, error-handling)
+3. Write evaluation guides (using-judge, rubrics, benchmarking)
+4. Write advanced guides (mcp-servers, cost-optimization, bundle-cleanup, multi-modal-prompts)
 
-Then update sidebar in astro.config.mjs to add Guides structure.
+Then update sidebar in astro.config.mjs to add these new sections.

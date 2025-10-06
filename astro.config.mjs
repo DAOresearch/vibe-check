@@ -26,7 +26,19 @@ export default defineConfig({
 				},
 				{
 					label: "Guides",
-					autogenerate: { directory: "guides" },
+					collapsed: false,
+					items: [
+						{
+							label: "Testing",
+							collapsed: false,
+							items: [
+								{ slug: "guides/testing/reactive-watchers" },
+								{ slug: "guides/testing/cumulative-state" },
+								{ slug: "guides/testing/custom-matchers" },
+								{ slug: "guides/testing/matrix-testing" },
+							],
+						},
+					],
 				},
 				{
 					label: "API Reference",
@@ -36,43 +48,19 @@ export default defineConfig({
 							label: "Core",
 							collapsed: false,
 							items: [
-								{ slug: "api/vibetest" },
-								{ slug: "api/vibeworkflow" },
-								{ slug: "api/runagent" },
-								{ slug: "api/defineagent" },
-								{ slug: "api/judge" },
+								{ slug: "api/core/vibetest" },
+								{ slug: "api/core/vibeworkflow" },
+								{ slug: "api/core/runagent" },
+								{ slug: "api/core/defineagent" },
+								{ slug: "api/core/judge" },
 							],
 						},
 						{
 							label: "Utilities",
 							collapsed: false,
-							items: [
-								{ slug: "api/prompt" },
-								{ slug: "api/matchers" },
-								{ slug: "api/types" },
-							],
+							items: [{ slug: "api/utilities/config" }],
 						},
 					],
-				},
-				{
-					label: "Examples",
-					autogenerate: { directory: "examples" },
-				},
-				{
-					label: "Recipes",
-					autogenerate: { directory: "recipes" },
-				},
-				{
-					label: "Explanation",
-					autogenerate: { directory: "explanation" },
-				},
-				{
-					label: "Claude Code Integration",
-					autogenerate: { directory: "claude-code" },
-				},
-				{
-					label: "Contributing",
-					autogenerate: { directory: "contributing" },
 				},
 			],
 			customCss: ["./docs/styles/custom.css"],

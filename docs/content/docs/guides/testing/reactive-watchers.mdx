@@ -1,0 +1,521 @@
+---
+title: Reactive Watchers
+description: Fail fast with assertions that run during agent execution
+sidebar:
+  order: 1
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+**Reactive watchers** let you run assertions **during** agent execution, allowing tests to fail fast when constraints are violated—without waiting for the agent to complete.
+
+<Aside type="tip">
+  **Use Case:** Detect problems early (e.g., agent modifying wrong files, exceeding cost budget) and abort execution immediately.
+</Aside>
+
+---
+
+## Why Use Watchers?
+
+**Problem:** Agent tests can be slow (10-60 seconds). If an agent violates a constraint early (e.g., modifies a protected file), you don't want to wait for full completion before failing.
+
+**Solution:** Watchers run assertions **during execution** and abort on the first failure.
+
+### Without Watchers (Slow Failure)
+
+```typescript
+vibeTest('should only modify src/', async ({ runAgent, expect }) => {
+  // Agent runs for 45 seconds, modifies database/ at second 5
+  const result = await runAgent({ prompt: '/refactor' });
+
+  // Fails here (after 45 seconds) ❌
+  expect(result).toHaveChangedFiles(['src/**']);
+});
+```
+
+**Issue:** Test runs for 45 seconds even though violation occurred at 5 seconds.
+
+### With Watchers (Fast Failure)
+
+```typescript
+vibeTest('should only modify src/', async ({ runAgent, expect }) => {
+  const execution = runAgent({ prompt: '/refactor' });
+
+  // Watcher checks after each tool call
+  execution.watch(({ files }) => {
+    const changed = files.changed().map(f => f.path);
+    const violation = changed.find(p => !p.startsWith('src/'));
+    if (violation) {
+      throw new Error(`Cannot modify ${violation}`);
+    }
+  });
+
+  // Aborts at ~5 seconds when database/ is touched ✅
+  await execution;
+});
+```
+
+**Benefit:** Test fails after 5 seconds, saving 40 seconds per test run.
+
+---
+
+## How Watchers Work
+
+### Execution Flow
+
+<Steps>
+1. **Call `runAgent()`** - Returns `AgentExecution` (thenable, not a Promise)
+2. **Register watcher(s)** - Call `.watch()` to add assertion functions
+3. **Agent runs** - Watchers fire after significant hook events:
+   - **PostToolUse** (after each tool completes)
+   - **TodoUpdate** (when TODO status changes)
+   - **Notification** (when agent sends notifications)
+4. **Watcher runs** - Receives `PartialRunResult` with current execution state
+5. **Pass or fail:**
+   - **Pass** → Next watcher runs (if any), execution continues
+   - **Fail** → Execution aborts immediately, test fails
+6. **Await execution** - Get final `RunResult` or catch watcher error
+</Steps>
+
+### Watcher Execution Guarantees
+
+<Aside type="note">
+  **Important:** Watchers execute **sequentially** in registration order. No parallelism, no race conditions.
+</Aside>
+
+```typescript
+const execution = runAgent({ prompt: '/refactor' });
+
+execution
+  .watch(({ tools }) => {
+    // Watcher 1: Runs first
+    console.log('Watcher 1 started');
+    expect(tools.failed().length).toBeLessThan(3);
+    console.log('Watcher 1 passed');
+  })
+  .watch(({ metrics }) => {
+    // Watcher 2: Runs after watcher 1 completes
+    console.log('Watcher 2 started');
+    expect(metrics.totalCostUsd).toBeLessThan(5.0);
+    console.log('Watcher 2 passed');
+  });
+
+await execution;
+```
+
+**Output:**
+```
+Watcher 1 started
+Watcher 1 passed
+Watcher 2 started
+Watcher 2 passed
+```
+
+**If watcher 1 throws:** Watcher 2 never runs, execution aborts immediately.
+
+---
+
+## PartialRunResult Interface
+
+Watchers receive a `PartialRunResult` object representing **in-progress** execution state.
+
+```typescript
+interface PartialRunResult {
+  /** Current metrics (incomplete until execution finishes) */
+  readonly metrics: {
+    totalTokens?: number;
+    totalCostUsd?: number;
+    durationMs?: number;
+    toolCalls?: number;
+    filesChanged?: number;
+  };
+
+  /** Tool calls completed or in-progress */
+  readonly tools: {
+    all(): ToolCall[];
+    failed(): ToolCall[];
+    succeeded(): ToolCall[];
+    inProgress(): ToolCall[];
+  };
+
+  /** TODO items with current status */
+  readonly todos: Array<{
+    text: string;
+    status: 'pending' | 'in_progress' | 'completed';
+  }>;
+
+  /** Files changed so far (may be incomplete) */
+  readonly files: {
+    changed(): FileChange[];
+    get(path: string): FileChange | undefined;
+  };
+
+  /** Whether execution has completed */
+  readonly isComplete: boolean;
+}
+```
+
+<Aside type="caution">
+  **Partial State:** Values may be incomplete during execution. For example, `metrics.totalCostUsd` only reflects cost **up to the current hook event**, not final cost.
+</Aside>
+
+---
+
+## Common Patterns
+
+### Pattern 1: File Change Constraints
+
+**Goal:** Ensure agent only modifies allowed files/directories.
+
+```typescript
+vibeTest('only modify src/ and tests/', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/refactor codebase with comprehensive tests'
+  });
+
+  execution.watch(({ files }) => {
+    const changed = files.changed();
+
+    for (const file of changed) {
+      const allowed = file.path.startsWith('src/') ||
+                      file.path.startsWith('tests/');
+
+      if (!allowed) {
+        throw new Error(
+          `Agent tried to modify protected file: ${file.path}`
+        );
+      }
+    }
+  });
+
+  const result = await execution;
+  expect(result).toCompleteAllTodos();
+});
+```
+
+<Aside type="tip">
+  **When to use:** Multi-file refactorings where agent might accidentally modify configuration files, dependencies, or database schemas.
+</Aside>
+
+### Pattern 2: Cost Budget Enforcement
+
+**Goal:** Abort execution if cost exceeds budget mid-run.
+
+```typescript
+vibeTest('stay within $5 budget', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/add feature with tests and docs'
+  });
+
+  execution.watch(({ metrics }) => {
+    if (metrics.totalCostUsd && metrics.totalCostUsd > 5.0) {
+      throw new Error(
+        `Cost exceeded $5.00 budget (current: $${metrics.totalCostUsd.toFixed(2)})`
+      );
+    }
+  });
+
+  const result = await execution;
+  expect(result).toCompleteAllTodos();
+});
+```
+
+<Aside type="note">
+  **Cost Tracking:** Cost accumulates after each tool call. Watcher runs after `PostToolUse`, so you get near-real-time cost updates.
+</Aside>
+
+### Pattern 3: Tool Failure Threshold
+
+**Goal:** Abort if agent hits too many failed tool calls (indicates agent is stuck).
+
+```typescript
+vibeTest('max 3 failed tool calls', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/fix type errors in src/'
+  });
+
+  execution.watch(({ tools }) => {
+    const failures = tools.failed();
+
+    if (failures.length >= 3) {
+      const failedTools = failures.map(t => t.name).join(', ');
+      throw new Error(
+        `Agent failed ${failures.length} tools (${failedTools}). Likely stuck.`
+      );
+    }
+  });
+
+  const result = await execution;
+  expect(result).toHaveNoErrorsInLogs();
+});
+```
+
+<Aside type="tip">
+  **Why useful:** Prevents runaway agents that repeatedly retry failing operations, wasting time and money.
+</Aside>
+
+### Pattern 4: File Deletion Protection
+
+**Goal:** Prevent agent from deleting any files.
+
+```typescript
+vibeTest('never delete files', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/refactor authentication module'
+  });
+
+  execution.watch(({ files }) => {
+    const deleted = files.changed().filter(f => f.changeType === 'deleted');
+
+    if (deleted.length > 0) {
+      const paths = deleted.map(f => f.path).join(', ');
+      throw new Error(`Agent deleted files: ${paths}`);
+    }
+  });
+
+  const result = await execution;
+  expect(result).toHaveChangedFiles(['src/auth.ts', 'tests/auth.test.ts']);
+});
+```
+
+### Pattern 5: Combined Constraints
+
+**Goal:** Enforce multiple constraints with one watcher.
+
+```typescript
+vibeTest('enforce multiple constraints', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/implement new API endpoint with tests'
+  });
+
+  execution.watch(({ files, tools, metrics }) => {
+    // Constraint 1: No deletions
+    const deleted = files.changed().filter(f => f.changeType === 'deleted');
+    expect(deleted).toHaveLength(0);
+
+    // Constraint 2: Max 2 tool failures
+    expect(tools.failed().length).toBeLessThan(3);
+
+    // Constraint 3: Cost budget
+    if (metrics.totalCostUsd) {
+      expect(metrics.totalCostUsd).toBeLessThan(3.0);
+    }
+
+    // Constraint 4: File allowlist
+    const changed = files.changed().map(f => f.path);
+    const violations = changed.filter(p =>
+      !p.startsWith('src/') && !p.startsWith('tests/')
+    );
+    expect(violations).toHaveLength(0);
+  });
+
+  const result = await execution;
+  expect(result).toCompleteAllTodos();
+});
+```
+
+<Aside type="caution">
+  **Performance Trade-off:** Each watcher runs after every significant hook event. Keep watcher logic fast (&lt;10ms) to avoid slowing down execution.
+</Aside>
+
+---
+
+## Advanced Usage
+
+### Async Watchers
+
+Watchers can be async for complex checks:
+
+```typescript
+execution.watch(async ({ files }) => {
+  const srcFiles = files.changed().filter(f => f.path.startsWith('src/'));
+
+  for (const file of srcFiles) {
+    const content = await file.after?.text();
+
+    if (content && content.includes('console.log')) {
+      throw new Error(
+        `Found console.log in ${file.path}. Use proper logging.`
+      );
+    }
+  }
+});
+```
+
+<Aside type="caution">
+  **Async Performance:** Each async watcher must complete before execution continues. Keep async operations fast to avoid slowing agent execution.
+</Aside>
+
+### Chaining Watchers
+
+Watchers can be chained for readability:
+
+```typescript
+const execution = runAgent({ prompt: '/refactor' });
+
+execution
+  .watch(checkFileConstraints)
+  .watch(checkCostBudget)
+  .watch(checkToolFailures);
+
+await execution;
+
+// Helper functions for reusability
+function checkFileConstraints({ files }: PartialRunResult) {
+  const changed = files.changed();
+  // ... constraints
+}
+
+function checkCostBudget({ metrics }: PartialRunResult) {
+  if (metrics.totalCostUsd && metrics.totalCostUsd > 5.0) {
+    throw new Error('Budget exceeded');
+  }
+}
+
+function checkToolFailures({ tools }: PartialRunResult) {
+  expect(tools.failed().length).toBeLessThan(3);
+}
+```
+
+### Manual Abort
+
+Abort execution programmatically (e.g., timeout):
+
+```typescript
+const execution = runAgent({ prompt: '/long-running-task' });
+
+// Abort after 60 seconds
+const timeout = setTimeout(() => {
+  execution.abort('Execution timeout');
+}, 60000);
+
+try {
+  const result = await execution;
+  clearTimeout(timeout);
+  expect(result).toCompleteAllTodos();
+} catch (error) {
+  clearTimeout(timeout);
+  if (error.message.includes('Execution timeout')) {
+    console.warn('Agent timed out');
+  }
+  throw error;
+}
+```
+
+---
+
+## When to Use Watchers
+
+### ✅ Good Use Cases
+
+- **File protection** - Prevent modifications to critical files (config, database, dependencies)
+- **Cost enforcement** - Abort expensive operations early
+- **Tool failure detection** - Stop agents that are stuck retrying failed tools
+- **Deletion protection** - Prevent destructive operations
+- **Real-time validation** - Check invariants during execution
+
+### ❌ Avoid Watchers For
+
+- **Final assertions** - Use standard `expect()` after `await` for post-execution checks
+- **Complex analysis** - Watchers should be fast; use post-execution analysis for deep checks
+- **Every test** - Only use when fail-fast behavior provides real value
+- **Debugging** - Use `console.log` in watchers sparingly (can slow execution)
+
+---
+
+## Comparison: Watchers vs Post-Execution
+
+| Feature | Watchers (Reactive) | Post-Execution (Standard) |
+|---------|---------------------|---------------------------|
+| **When** | During execution | After completion |
+| **Speed** | Fail fast (early abort) | Wait for full completion |
+| **Use Case** | Constraints/budgets | Final validation |
+| **Data** | `PartialRunResult` (incomplete) | `RunResult` (complete) |
+| **Performance** | Small overhead per hook event | No overhead |
+
+**Rule of thumb:** Use watchers for **constraints** (things that should abort). Use standard assertions for **validation** (things to check at the end).
+
+---
+
+## Best Practices
+
+<Steps>
+1. **Keep watchers fast** - Aim for &lt;10ms per watcher to avoid slowing execution
+2. **Use descriptive errors** - Include context (file paths, values) in error messages
+3. **Combine related checks** - One watcher with multiple assertions is better than many watchers
+4. **Extract reusable functions** - Define watcher functions for common patterns
+5. **Test watcher logic** - Ensure watcher assertions are correct (wrong logic = false negatives)
+6. **Don't overuse** - Only use watchers when fail-fast provides real value
+</Steps>
+
+---
+
+## Troubleshooting
+
+### Watcher Not Firing
+
+**Problem:** Watcher never runs even though agent is executing.
+
+**Cause:** Watchers fire after significant hook events (PostToolUse, TodoUpdate, Notification). If agent isn't using tools or updating TODOs, watchers won't fire.
+
+**Solution:** Use standard post-execution assertions instead, or verify agent is actually using tools.
+
+### Watcher Slowing Execution
+
+**Problem:** Tests run slower with watchers enabled.
+
+**Cause:** Watcher logic is too slow (async operations, heavy computations).
+
+**Solution:** Profile watcher timing, optimize slow operations, or move complex checks to post-execution.
+
+### False Negatives
+
+**Problem:** Watcher passes but constraint is violated.
+
+**Cause:** Watcher logic has bugs or checks incomplete state.
+
+**Solution:** Test watcher logic separately, add logging to verify watcher is seeing expected data.
+
+---
+
+## See Also
+
+- [API Reference: AgentExecution](/api/types/agent-execution/) - Full interface documentation
+- [API Reference: PartialRunResult](/api/types/partial-result/) - Partial state interface
+- [Custom Matchers](/guides/testing/custom-matchers/) - Use matchers in watchers with `expect()`
+- [Your First Test](/getting-started/first-test/) - Watchers in action
+
+---
+
+## Quick Reference
+
+```typescript
+// Basic watcher
+const execution = runAgent({ prompt: '/task' });
+execution.watch(({ files, tools, metrics }) => {
+  // Assertions here
+});
+await execution;
+
+// Chained watchers
+execution
+  .watch(watcher1)
+  .watch(watcher2)
+  .watch(watcher3);
+
+// Async watcher
+execution.watch(async ({ files }) => {
+  const content = await files.get('src/main.ts')?.after?.text();
+  expect(content).toBeDefined();
+});
+
+// Manual abort
+execution.abort('Custom reason');
+
+// Error handling
+try {
+  await execution;
+} catch (error) {
+  // Watcher threw or execution failed
+}
+```
