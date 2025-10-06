@@ -1,0 +1,596 @@
+---
+title: Your First Evaluation
+description: Benchmark models and configurations with matrix testing and LLM judges
+sidebar:
+  order: 5
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+In this tutorial, you'll learn how to **evaluate and compare** different models, prompts, and configurations using **matrix testing** and **LLM-based judges**. This is essential for finding the best cost-quality tradeoff for your use case.
+
+<Aside type="tip">
+  **Prerequisites:** This tutorial assumes you've completed [Your First Test →](/getting-started/first-test/) and understand matchers and the judge.
+</Aside>
+
+## What You'll Build
+
+An evaluation suite that:
+1. **Compares models** (Sonnet vs Haiku) on the same task
+2. **Tests multiple configurations** (different maxTurns settings)
+3. **Evaluates quality** with an LLM judge
+4. **Analyzes cost vs quality tradeoffs**
+5. **Generates comparison reports**
+
+We'll use `defineTestSuite` for **matrix testing** (Cartesian product of configurations).
+
+---
+
+## Why Evaluation Matters
+
+Before deploying an agent to production, you need to answer:
+
+- 💰 **Which model** gives the best cost-quality tradeoff?
+- ⚡ **How many turns** should I allow?
+- 📝 **Which prompt** works best?
+- 🎯 **What configurations** meet my quality bar?
+
+**Evaluation tests** help you make data-driven decisions.
+
+---
+
+## Basic Model Comparison
+
+Let's start by comparing two models on the same task:
+
+<Steps>
+
+1. **Create the evaluation file**
+
+   Create `tests/eval/model-comparison.test.ts`:
+
+   ```typescript
+   import { vibeTest } from '@dao/vibe-check';
+
+   // Test with Sonnet
+   vibeTest('sonnet - refactor auth', async ({ runAgent, judge, expect }) => {
+     const result = await runAgent({
+       model: 'claude-3-5-sonnet-latest',
+       prompt: 'Refactor src/auth.ts --add-tests'
+     });
+
+     const judgment = await judge(result, {
+       rubric: {
+         name: 'Code Quality',
+         criteria: [
+           { name: 'correct', description: 'Code works correctly', weight: 0.5 },
+           { name: 'tested', description: 'Has comprehensive tests', weight: 0.3 },
+           { name: 'clean', description: 'Code is clean', weight: 0.2 }
+         ],
+         passThreshold: 0.7
+       }
+     });
+
+     // Log metrics for comparison
+     console.log('Sonnet - Cost:', result.metrics.totalCostUsd);
+     console.log('Sonnet - Quality:', judgment.overallScore);
+
+     expect(judgment.passed).toBe(true);
+   });
+
+   // Test with Haiku
+   vibeTest('haiku - refactor auth', async ({ runAgent, judge, expect }) => {
+     const result = await runAgent({
+       model: 'claude-3-5-haiku-latest',
+       prompt: 'Refactor src/auth.ts --add-tests'
+     });
+
+     const judgment = await judge(result, {
+       rubric: {
+         name: 'Code Quality',
+         criteria: [
+           { name: 'correct', description: 'Code works correctly', weight: 0.5 },
+           { name: 'tested', description: 'Has comprehensive tests', weight: 0.3 },
+           { name: 'clean', description: 'Code is clean', weight: 0.2 }
+         ],
+         passThreshold: 0.7
+       }
+     });
+
+     console.log('Haiku - Cost:', result.metrics.totalCostUsd);
+     console.log('Haiku - Quality:', judgment.overallScore);
+
+     expect(judgment.passed).toBe(true);
+   });
+   ```
+
+2. **Run the evaluation**
+
+   ```bash
+   vitest tests/eval/model-comparison.test.ts
+   ```
+
+3. **Compare results**
+
+   ```
+   ✓ sonnet - refactor auth (18.2s)
+     Sonnet - Cost: $0.42
+     Sonnet - Quality: 0.85
+
+   ✓ haiku - refactor auth (12.1s)
+     Haiku - Cost: $0.08
+     Haiku - Quality: 0.72
+
+   Vibe Check Cost Summary
+   ─────────────────────────────
+   Total Cost: $0.50
+   ```
+
+</Steps>
+
+**Analysis:** Sonnet costs 5× more but delivers 18% higher quality. Choose based on your needs!
+
+---
+
+## Matrix Testing with defineTestSuite
+
+Manually writing tests for every combination is tedious. Use `defineTestSuite` to generate a **Cartesian product** of configurations:
+
+### Basic Matrix
+
+```typescript
+import { defineTestSuite, vibeTest } from '@dao/vibe-check';
+
+defineTestSuite({
+  matrix: {
+    model: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'],
+    maxTurns: [5, 10, 20]
+  },
+  test: ({ model, maxTurns }) => {
+    vibeTest(`${model} - ${maxTurns} turns`, async ({ runAgent, expect }) => {
+      const result = await runAgent({
+        model,
+        maxTurns,
+        prompt: 'Refactor src/auth.ts'
+      });
+
+      console.log(`[${model}/${maxTurns}] Cost: $${result.metrics.totalCostUsd}`);
+      console.log(`[${model}/${maxTurns}] Duration: ${result.metrics.durationMs}ms`);
+
+      expect(result).toStayUnderCost(5.0);
+    });
+  }
+});
+```
+
+**This generates 6 tests:**
+- `claude-3-5-sonnet-latest - 5 turns`
+- `claude-3-5-sonnet-latest - 10 turns`
+- `claude-3-5-sonnet-latest - 20 turns`
+- `claude-3-5-haiku-latest - 5 turns`
+- `claude-3-5-haiku-latest - 10 turns`
+- `claude-3-5-haiku-latest - 20 turns`
+
+<Aside type="note">
+  **Matrix Size:** With `n` parameters each having `m` values, you get `m^n` tests. Be mindful of combinatorial explosion!
+
+  Example: 3 models × 4 maxTurns × 2 prompts = **24 tests**
+</Aside>
+
+---
+
+## Complete Evaluation Suite
+
+Here's a production-ready evaluation with quality assessment:
+
+```typescript
+import { defineTestSuite, vibeTest } from '@dao/vibe-check';
+import { writeFileSync } from 'fs';
+
+// Define shared rubric
+const QUALITY_RUBRIC = {
+  name: 'Refactor Quality',
+  criteria: [
+    {
+      name: 'correctness',
+      description: 'Code works correctly and maintains functionality',
+      weight: 0.4
+    },
+    {
+      name: 'test_coverage',
+      description: 'Has comprehensive unit tests',
+      weight: 0.3
+    },
+    {
+      name: 'code_quality',
+      description: 'Code is clean, readable, and maintainable',
+      weight: 0.2
+    },
+    {
+      name: 'type_safety',
+      description: 'Uses TypeScript types properly',
+      weight: 0.1
+    }
+  ],
+  passThreshold: 0.7
+};
+
+// Results tracking
+const evalResults: any[] = [];
+
+defineTestSuite({
+  name: 'Model Evaluation Suite',
+  matrix: {
+    model: [
+      'claude-3-5-sonnet-latest',
+      'claude-3-5-haiku-latest'
+    ],
+    maxTurns: [5, 10, 15]
+  },
+  test: ({ model, maxTurns }) => {
+    vibeTest(`eval: ${model.split('-').slice(-2, -1)[0]} / ${maxTurns}t`,
+      async ({ runAgent, judge, expect }) => {
+        const startTime = Date.now();
+
+        // Run agent with configuration
+        const result = await runAgent({
+          model,
+          maxTurns,
+          prompt: `
+            Refactor src/auth.ts:
+            - Add TypeScript strict types
+            - Add comprehensive unit tests
+            - Remove TODO comments
+            - Improve error handling
+          `
+        });
+
+        const duration = Date.now() - startTime;
+
+        // Evaluate quality with judge
+        const judgment = await judge(result, {
+          rubric: QUALITY_RUBRIC
+        });
+
+        // Collect metrics
+        const metrics = {
+          model: model.split('-').slice(-2, -1)[0], // 'sonnet' or 'haiku'
+          maxTurns,
+          cost: result.metrics.totalCostUsd ?? 0,
+          tokens: result.metrics.totalTokens ?? 0,
+          duration,
+          filesChanged: result.files.stats().total,
+          qualityScore: judgment.overallScore ?? 0,
+          passed: judgment.passed,
+          criteriaScores: judgment.criteria
+        };
+
+        evalResults.push(metrics);
+
+        // Log results
+        console.log(`\n📊 ${metrics.model} (${maxTurns} turns):`);
+        console.log(`   💰 Cost: $${metrics.cost.toFixed(4)}`);
+        console.log(`   ⭐ Quality: ${(metrics.qualityScore * 100).toFixed(1)}%`);
+        console.log(`   ⏱️  Duration: ${(metrics.duration / 1000).toFixed(1)}s`);
+        console.log(`   📁 Files: ${metrics.filesChanged}`);
+
+        // Quality gates
+        expect(judgment.passed).toBe(true);
+        expect(metrics.cost).toBeLessThan(3.0);
+      }
+    );
+  }
+});
+
+// Generate report after all tests (in a separate test)
+vibeTest('generate evaluation report', async () => {
+  // Calculate statistics
+  const report = {
+    timestamp: new Date().toISOString(),
+    summary: {
+      totalTests: evalResults.length,
+      avgCost: evalResults.reduce((sum, r) => sum + r.cost, 0) / evalResults.length,
+      avgQuality: evalResults.reduce((sum, r) => sum + r.qualityScore, 0) / evalResults.length
+    },
+    byModel: {} as Record<string, any>,
+    results: evalResults
+  };
+
+  // Group by model
+  for (const result of evalResults) {
+    if (!report.byModel[result.model]) {
+      report.byModel[result.model] = {
+        avgCost: 0,
+        avgQuality: 0,
+        results: []
+      };
+    }
+    report.byModel[result.model].results.push(result);
+  }
+
+  // Calculate per-model averages
+  for (const model of Object.keys(report.byModel)) {
+    const results = report.byModel[model].results;
+    report.byModel[model].avgCost =
+      results.reduce((sum: number, r: any) => sum + r.cost, 0) / results.length;
+    report.byModel[model].avgQuality =
+      results.reduce((sum: number, r: any) => sum + r.qualityScore, 0) / results.length;
+  }
+
+  // Save report
+  writeFileSync('eval-report.json', JSON.stringify(report, null, 2));
+
+  console.log('\n📊 Evaluation Report:');
+  console.log('─────────────────────────────');
+  console.log(`Total Tests: ${report.summary.totalTests}`);
+  console.log(`Avg Cost: $${report.summary.avgCost.toFixed(4)}`);
+  console.log(`Avg Quality: ${(report.summary.avgQuality * 100).toFixed(1)}%`);
+  console.log('\nBy Model:');
+
+  for (const [model, stats] of Object.entries(report.byModel)) {
+    console.log(`  ${model}:`);
+    console.log(`    Avg Cost: $${stats.avgCost.toFixed(4)}`);
+    console.log(`    Avg Quality: ${(stats.avgQuality * 100).toFixed(1)}%`);
+  }
+
+  console.log(`\n✅ Report saved to eval-report.json`);
+}, { timeout: 600000 });
+```
+
+---
+
+## Analyzing Results
+
+After running evaluations, analyze the tradeoffs:
+
+### Cost vs Quality
+
+```
+Model      | Avg Cost | Avg Quality | Cost per Quality Point
+-----------|----------|-------------|----------------------
+sonnet     | $0.42    | 0.85        | $0.49
+haiku      | $0.08    | 0.72        | $0.11
+```
+
+**Winner:** Haiku for budget-conscious use cases, Sonnet for quality-critical tasks.
+
+### Speed vs Quality
+
+```
+Model      | Avg Duration | Avg Quality | Seconds per Quality Point
+-----------|--------------|-------------|-------------------------
+sonnet     | 18.2s        | 0.85        | 21.4s
+haiku      | 12.1s        | 0.72        | 16.8s
+```
+
+**Winner:** Haiku is faster for similar quality.
+
+### Turn Limit Impact
+
+```
+maxTurns   | Success Rate | Avg Cost | Avg Quality
+-----------|--------------|----------|------------
+5          | 60%          | $0.15    | 0.68
+10         | 85%          | $0.28    | 0.78
+15         | 95%          | $0.42    | 0.82
+```
+
+**Sweet spot:** 10 turns balances success rate and cost.
+
+---
+
+## Evaluating Different Prompts
+
+Compare prompt variations:
+
+```typescript
+defineTestSuite({
+  matrix: {
+    prompt: [
+      'Refactor src/auth.ts',
+      'Refactor src/auth.ts --add-tests',
+      'Refactor src/auth.ts --add-tests --strict-types',
+      'Refactor src/auth.ts with comprehensive tests and strict types'
+    ]
+  },
+  test: ({ prompt }) => {
+    vibeTest(`prompt: ${prompt.slice(0, 30)}...`, async ({ runAgent, judge, expect }) => {
+      const result = await runAgent({
+        model: 'claude-3-5-sonnet-latest',
+        prompt
+      });
+
+      const judgment = await judge(result, {
+        rubric: QUALITY_RUBRIC
+      });
+
+      console.log(`Prompt: "${prompt}"`);
+      console.log(`Quality: ${(judgment.overallScore * 100).toFixed(1)}%`);
+      console.log(`Cost: $${result.metrics.totalCostUsd}\n`);
+
+      expect(judgment.passed).toBe(true);
+    });
+  }
+});
+```
+
+---
+
+## Custom Evaluation Metrics
+
+Define your own success criteria:
+
+```typescript
+vibeTest('custom metrics', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: 'Refactor auth.ts'
+  });
+
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Custom Evaluation',
+      criteria: [
+        {
+          name: 'test_quality',
+          description: 'Tests cover edge cases and error paths',
+          weight: 0.4
+        },
+        {
+          name: 'performance',
+          description: 'Code is optimized for performance',
+          weight: 0.3
+        },
+        {
+          name: 'security',
+          description: 'Follows security best practices',
+          weight: 0.3
+        }
+      ]
+    }
+  });
+
+  // Custom quality gates
+  const hasTests = result.files.changed().some(f =>
+    f.path.includes('.test.') || f.path.includes('.spec.')
+  );
+
+  const testCoverage = hasTests ? 1.0 : 0.0;
+  const overallScore = (judgment.overallScore ?? 0) * 0.7 + testCoverage * 0.3;
+
+  console.log('Judge Score:', judgment.overallScore);
+  console.log('Test Coverage:', testCoverage);
+  console.log('Overall Score:', overallScore);
+
+  expect(overallScore).toBeGreaterThan(0.8);
+});
+```
+
+---
+
+## Baseline Testing
+
+Track improvements over time:
+
+```typescript
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+
+vibeTest('regression test against baseline', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    model: 'claude-3-5-sonnet-latest',
+    prompt: 'Refactor src/auth.ts'
+  });
+
+  const judgment = await judge(result, {
+    rubric: QUALITY_RUBRIC
+  });
+
+  const currentMetrics = {
+    cost: result.metrics.totalCostUsd,
+    quality: judgment.overallScore,
+    timestamp: new Date().toISOString()
+  };
+
+  // Load baseline
+  const baselinePath = 'baseline-metrics.json';
+  let baseline = null;
+
+  if (existsSync(baselinePath)) {
+    baseline = JSON.parse(readFileSync(baselinePath, 'utf-8'));
+
+    // Compare against baseline
+    console.log('\n📊 Baseline Comparison:');
+    console.log(`Quality: ${(currentMetrics.quality * 100).toFixed(1)}% (baseline: ${(baseline.quality * 100).toFixed(1)}%)`);
+    console.log(`Cost: $${currentMetrics.cost?.toFixed(4)} (baseline: $${baseline.cost?.toFixed(4)})`);
+
+    // Ensure we didn't regress
+    expect(currentMetrics.quality).toBeGreaterThanOrEqual(baseline.quality * 0.95); // Allow 5% regression
+  } else {
+    // Save as new baseline
+    writeFileSync(baselinePath, JSON.stringify(currentMetrics, null, 2));
+    console.log('✅ Baseline saved');
+  }
+});
+```
+
+---
+
+## Best Practices
+
+### ✅ DO: Use Consistent Rubrics
+
+```typescript
+// Define once, reuse everywhere
+const STANDARD_RUBRIC = {
+  name: 'Code Quality',
+  criteria: [/* ... */]
+};
+
+// Use in all evaluations
+const judgment = await judge(result, { rubric: STANDARD_RUBRIC });
+```
+
+### ✅ DO: Track All Metrics
+
+```typescript
+const metrics = {
+  cost: result.metrics.totalCostUsd,
+  quality: judgment.overallScore,
+  duration: result.metrics.durationMs,
+  tokens: result.metrics.totalTokens,
+  filesChanged: result.files.stats().total,
+  toolCalls: result.metrics.toolCalls
+};
+```
+
+### ✅ DO: Save Evaluation Data
+
+```typescript
+// Save for later analysis
+writeFileSync('eval-results.json', JSON.stringify(results, null, 2));
+```
+
+### ❌ DON'T: Compare Different Tasks
+
+```typescript
+// ❌ Bad: Comparing apples to oranges
+vibeTest('sonnet - refactor', async ({ runAgent }) => { /* ... */ });
+vibeTest('haiku - new feature', async ({ runAgent }) => { /* ... */ });
+
+// ✅ Good: Same task, different configs
+defineTestSuite({
+  matrix: { model: ['sonnet', 'haiku'] },
+  test: ({ model }) => {
+    vibeTest(model, async ({ runAgent }) => {
+      // Same prompt for fair comparison
+    });
+  }
+});
+```
+
+### ❌ DON'T: Forget Cost Budgets
+
+```typescript
+// ✅ Always set cost limits
+expect(result).toStayUnderCost(5.0);
+```
+
+---
+
+## Next Steps
+
+You've learned how to evaluate agents! Now explore:
+
+- **[Using Judge →](/guides/evaluation/using-judge/)** - Deep dive into LLM evaluation
+- **[Creating Rubrics →](/guides/evaluation/rubrics/)** - Design effective evaluation criteria
+- **[Benchmarking Guide →](/guides/evaluation/benchmarking/)** - Advanced comparison techniques
+- **[Cost Optimization →](/guides/advanced/cost-optimization/)** - Reduce costs while maintaining quality
+- **[Matrix Testing →](/guides/testing/matrix-testing/)** - Advanced matrix patterns
+
+---
+
+## Reference
+
+- **[defineTestSuite →](/api/utilities/matchers/#definetestsuite)** - Matrix testing API
+- **[judge() →](/api/core/judge/)** - LLM evaluation API
+- **[Rubric Interface →](/api/types/rubric/)** - Rubric structure
+- **[Custom Matchers →](/api/utilities/matchers/)** - All available matchers

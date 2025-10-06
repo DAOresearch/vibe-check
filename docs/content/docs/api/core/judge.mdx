@@ -1,0 +1,395 @@
+---
+title: judge
+description: Evaluate RunResult with LLM-based judgment
+sidebar:
+  order: 5
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+
+The `judge` function uses an LLM to evaluate a `RunResult` against a rubric, returning structured judgment data. Available in test context and as a standalone function.
+
+## Signature
+
+```typescript
+function judge<T = DefaultJudgmentResult>(
+  result: RunResult,
+  options: {
+    rubric: Rubric;
+    instructions?: string;
+    resultFormat?: z.ZodType<T>;
+    throwOnFail?: boolean;
+  }
+): Promise<T>
+```
+
+---
+
+## Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `result` | `RunResult` | The execution result to evaluate |
+| `options.rubric` | `Rubric` | Evaluation criteria |
+| `options.instructions` | `string` | Optional custom instructions |
+| `options.resultFormat` | `z.ZodType<T>` | Optional Zod schema for custom result type |
+| `options.throwOnFail` | `boolean` | Throw if judgment fails (default: `false`) |
+
+**Returns:** `Promise<T>` where `T` defaults to `DefaultJudgmentResult`
+
+---
+
+## Rubric Structure
+
+```typescript
+interface Rubric {
+  name: string;
+  criteria: Array<{
+    name: string;
+    description: string;
+    weight?: number;    // 0-1, defaults to equal weighting
+    threshold?: number; // 0-1, minimum score to pass (default: 0.5)
+  }>;
+  model?: string;         // Override judge model
+  passThreshold?: number; // 0-1, overall threshold (default: 0.7)
+}
+```
+
+---
+
+## Default Judgment Result
+
+```typescript
+interface DefaultJudgmentResult {
+  passed: boolean;
+  overallScore?: number;  // 0-1
+  criteria: Record<string, {
+    passed: boolean;
+    score?: number;       // 0-1
+    reason: string;
+  }>;
+  feedback?: string;
+}
+```
+
+---
+
+## Basic Usage
+
+```typescript
+const result = await runAgent({
+  prompt: 'Refactor src/auth.ts --add-tests'
+});
+
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Code Quality',
+    criteria: [
+      {
+        name: 'has_tests',
+        description: 'Added comprehensive unit tests',
+        weight: 0.4
+      },
+      {
+        name: 'type_safe',
+        description: 'Uses TypeScript strict types',
+        weight: 0.3
+      },
+      {
+        name: 'clean_code',
+        description: 'Code is clean and readable',
+        weight: 0.3
+      }
+    ],
+    passThreshold: 0.75
+  }
+});
+
+console.log('Passed:', judgment.passed);
+console.log('Score:', judgment.overallScore);
+
+// Check individual criteria
+for (const [name, result] of Object.entries(judgment.criteria)) {
+  console.log(`${name}: ${result.passed ? '✓' : '✗'} (${result.reason})`);
+}
+```
+
+---
+
+## Custom Result Format
+
+Define custom judgment structure with Zod:
+
+```typescript
+import { z } from 'zod';
+
+const CustomJudgment = z.object({
+  meetsRequirements: z.boolean(),
+  missingFeatures: z.array(z.string()),
+  codeQualityScore: z.number().min(0).max(1),
+  recommendations: z.array(z.string())
+});
+
+const judgment = await judge<z.infer<typeof CustomJudgment>>(result, {
+  rubric: {
+    name: 'Feature Implementation',
+    criteria: [
+      { name: 'complete', description: 'All requirements met' },
+      { name: 'quality', description: 'High code quality' }
+    ]
+  },
+  resultFormat: CustomJudgment
+});
+
+// TypeScript knows the shape
+expect(judgment.meetsRequirements).toBe(true);
+expect(judgment.missingFeatures).toHaveLength(0);
+expect(judgment.codeQualityScore).toBeGreaterThan(0.8);
+```
+
+---
+
+## Custom Instructions
+
+Provide additional context for the judge:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Security Review',
+    criteria: [
+      { name: 'input_validation', description: 'Validates all inputs' },
+      { name: 'auth_checks', description: 'Proper authentication' },
+      { name: 'no_secrets', description: 'No hardcoded secrets' }
+    ]
+  },
+  instructions: `
+    Review this authentication module refactor.
+    Focus on security best practices for web applications.
+    Consider OWASP Top 10 vulnerabilities.
+  `
+});
+```
+
+---
+
+## Throw on Failure
+
+Fail the test if judgment doesn't pass:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: QUALITY_RUBRIC,
+  throwOnFail: true  // Throws if judgment.passed === false
+});
+
+// Only reaches here if passed
+console.log('Quality check passed!');
+```
+
+---
+
+## Equal Weighting
+
+If weights are omitted, criteria are weighted equally:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Simple Check',
+    criteria: [
+      { name: 'has_tests', description: 'Has tests' },
+      { name: 'no_todos', description: 'No TODO comments' },
+      { name: 'clean', description: 'Code is clean' }
+    ]
+    // Each criterion has weight 0.333...
+  }
+});
+```
+
+---
+
+## Criterion Thresholds
+
+Set per-criterion pass thresholds:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Quality Gate',
+    criteria: [
+      {
+        name: 'correctness',
+        description: 'Code works correctly',
+        weight: 0.5,
+        threshold: 0.9  // Must score ≥0.9 to pass this criterion
+      },
+      {
+        name: 'style',
+        description: 'Follows style guide',
+        weight: 0.5,
+        threshold: 0.6  // Lower threshold for style
+      }
+    ]
+  }
+});
+```
+
+---
+
+## Examples
+
+### Model Comparison
+
+```typescript
+defineTestSuite({
+  matrix: {
+    model: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest']
+  },
+  test: ({ model }) => {
+    vibeTest(`${model} quality`, async ({ runAgent, judge, expect }) => {
+      const result = await runAgent({
+        model,
+        prompt: 'Refactor auth.ts'
+      });
+
+      const judgment = await judge(result, {
+        rubric: STANDARD_RUBRIC
+      });
+
+      console.log(`${model}: ${(judgment.overallScore * 100).toFixed(1)}%`);
+      expect(judgment.passed).toBe(true);
+    });
+  }
+});
+```
+
+### Progressive Quality Gates
+
+```typescript
+vibeTest('quality gates', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: 'Build feature'
+  });
+
+  // Gate 1: Basic functionality
+  const basicCheck = await judge(result, {
+    rubric: {
+      name: 'Basic',
+      criteria: [
+        { name: 'works', description: 'Feature works' }
+      ]
+    },
+    throwOnFail: true
+  });
+
+  // Gate 2: Code quality
+  const qualityCheck = await judge(result, {
+    rubric: {
+      name: 'Quality',
+      criteria: [
+        { name: 'tested', description: 'Has tests' },
+        { name: 'clean', description: 'Clean code' }
+      ]
+    },
+    throwOnFail: true
+  });
+
+  // Gate 3: Production readiness
+  const prodCheck = await judge(result, {
+    rubric: {
+      name: 'Production',
+      criteria: [
+        { name: 'secure', description: 'Security reviewed' },
+        { name: 'performant', description: 'Performance optimized' },
+        { name: 'documented', description: 'Well documented' }
+      ]
+    }
+  });
+
+  expect(prodCheck.passed).toBe(true);
+});
+```
+
+### PRD Compliance
+
+```typescript
+vibeTest('implements PRD', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      text: 'Implement feature from PRD',
+      files: ['./docs/feature-prd.md']
+    })
+  });
+
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'PRD Compliance',
+      criteria: [
+        {
+          name: 'requirements',
+          description: 'Implements all requirements from PRD',
+          weight: 0.5
+        },
+        {
+          name: 'acceptance',
+          description: 'Meets acceptance criteria',
+          weight: 0.3
+        },
+        {
+          name: 'quality',
+          description: 'Production quality code',
+          weight: 0.2
+        }
+      ]
+    },
+    instructions: `
+      Compare the implementation against the PRD in the context.
+      Check if all requirements are implemented.
+    `
+  });
+
+  expect(judgment.passed).toBe(true);
+});
+```
+
+---
+
+## Custom Judge Model
+
+Override the model used for judging:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Quality',
+    criteria: [/* ... */],
+    model: 'claude-3-5-opus-latest' // Use more powerful model for judging
+  }
+});
+```
+
+---
+
+## Matcher Shorthand
+
+Use the `toPassRubric` matcher for inline judging:
+
+```typescript
+await expect(result).toPassRubric({
+  name: 'Quality',
+  criteria: [
+    { name: 'correct', description: 'Works correctly' }
+  ]
+});
+```
+
+---
+
+## See Also
+
+- **[Rubric →](/api/types/rubric/)** - Complete rubric interface
+- **[DefaultJudgmentResult →](/api/types/rubric/)** - Default result structure
+- **[toPassRubric →](/api/utilities/matchers/)** - Matcher shorthand
+- **[Using Judge Guide →](/guides/evaluation/using-judge/)** - Complete guide
+- **[Rubrics Guide →](/guides/evaluation/rubrics/)** - Creating effective rubrics

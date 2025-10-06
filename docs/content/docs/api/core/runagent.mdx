@@ -1,0 +1,245 @@
+---
+title: runAgent
+description: Execute an agent and capture execution context
+sidebar:
+  order: 3
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+
+The `runAgent` function executes a Claude Code agent and automatically captures all execution context (git state, file changes, tool calls, metrics). Available in both test context and as a standalone function.
+
+## Signature
+
+```typescript
+function runAgent(opts: RunAgentOptions): AgentExecution
+```
+
+**Returns:** `AgentExecution` (thenable) that resolves to `RunResult`
+
+---
+
+## Parameters (RunAgentOptions)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prompt` | `string \| AsyncIterable<SDKUserMessage>` | *required* | User prompt or multi-modal messages |
+| `model` | `string` | `DEFAULT_MODEL` | Model to use (env: `VIBE_DEFAULT_MODEL`) |
+| `workspace` | `string` | current dir | Workspace directory path |
+| `allowedTools` | `string[]` | all tools | Whitelist of allowed tools |
+| `mcpServers` | `Record<string, MCPServerConfig>` | none | MCP server configurations |
+| `timeout Ms` | `number` | `300000` | Timeout in milliseconds (5 min) |
+| `maxTurns` | `number` | `20` | Maximum conversation turns |
+| `systemPrompt` | `string \| object` | default | System prompt configuration |
+| `context` | `RunResult` | none | Previous context to continue from |
+
+---
+
+## Basic Usage
+
+### Simple Prompt
+
+```typescript
+const result = await runAgent({
+  prompt: 'Refactor src/auth.ts'
+});
+
+console.log('Cost:', result.metrics.totalCostUsd);
+console.log('Files:', result.files.stats().total);
+```
+
+### With Configuration
+
+```typescript
+const result = await runAgent({
+  prompt: 'Refactor auth.ts --add-tests',
+  model: 'claude-3-5-haiku-latest',
+  maxTurns: 10,
+  timeoutMs: 600000, // 10 minutes
+  workspace: '/path/to/repo'
+});
+```
+
+---
+
+## Multi-Modal Prompts
+
+Use the `prompt()` helper for images and files:
+
+```typescript
+import { runAgent, prompt } from '@dao/vibe-check';
+
+const result = await runAgent({
+  prompt: prompt({
+    text: 'Implement the feature from this PRD',
+    files: ['./docs/prd.md'],
+    images: ['./mockups/ui-design.png']
+  })
+});
+```
+
+See [prompt() →](/api/core/prompt/) for details.
+
+---
+
+## Tool Restrictions
+
+### Whitelist Tools
+
+```typescript
+const result = await runAgent({
+  prompt: 'Read and summarize README.md',
+  allowedTools: ['Read'] // Only Read tool allowed
+});
+
+expect(result).toUseOnlyTools(['Read']);
+```
+
+### MCP Servers
+
+```typescript
+const result = await runAgent({
+  prompt: 'Query database for user stats',
+  mcpServers: {
+    database: {
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-postgres'],
+      env: {
+        POSTGRES_URL: process.env.DATABASE_URL
+      },
+      allowedTools: ['query', 'schema']
+    }
+  }
+});
+```
+
+---
+
+## Context Continuation
+
+Pass previous result as context for multi-turn conversations:
+
+```typescript
+// First run
+const analyze = await runAgent({
+  prompt: 'Analyze this codebase'
+});
+
+// Second run with context
+const fix = await runAgent({
+  prompt: 'Fix the issues you found',
+  context: analyze // Continues conversation
+});
+```
+
+---
+
+## System Prompts
+
+### Custom System Prompt
+
+```typescript
+const result = await runAgent({
+  prompt: 'Write code',
+  systemPrompt: {
+    preset: 'default',
+    append: 'Follow company style guide. Use TypeScript strict mode.'
+  }
+});
+```
+
+### String Override
+
+```typescript
+const result = await runAgent({
+  prompt: 'Task',
+  systemPrompt: 'You are a code reviewer. Be thorough and constructive.'
+});
+```
+
+---
+
+## Reactive Watchers
+
+Register watchers before awaiting for fail-fast behavior:
+
+```typescript
+const execution = runAgent({
+  prompt: '/refactor'
+});
+
+execution.watch(({ files, metrics }) => {
+  // Abort if protected files touched
+  expect(files.changed()).not.toContain('database/');
+
+  // Abort if budget exceeded
+  expect(metrics.totalCostUsd).toBeLessThan(5.0);
+});
+
+const result = await execution;
+```
+
+See [AgentExecution.watch() →](/api/types/agent-execution/#watch)
+
+---
+
+## Examples
+
+### Cost-Optimized Execution
+
+```typescript
+const result = await runAgent({
+  model: 'claude-3-5-haiku-latest', // Cheaper
+  maxTurns: 5,                      // Fewer turns
+  prompt: 'Simple task'
+});
+
+expect(result).toStayUnderCost(0.10);
+```
+
+### Long-Running Task
+
+```typescript
+const result = await runAgent({
+  prompt: 'Complex refactoring with tests',
+  timeoutMs: 900000, // 15 minutes
+  maxTurns: 30
+});
+```
+
+### Multi-Workspace
+
+```typescript
+// Process multiple repos
+const repos = ['/repo1', '/repo2', '/repo3'];
+
+for (const workspace of repos) {
+  const result = await runAgent({
+    workspace,
+    prompt: '/update-deps'
+  });
+
+  console.log(`${workspace}:`, result.files.stats().total, 'files');
+}
+```
+
+---
+
+## Return Value (AgentExecution)
+
+`runAgent` returns an `AgentExecution` object that:
+- **Is awaitable**: `const result = await runAgent(...)`
+- **Supports watchers**: `execution.watch(fn)`
+- **Can be aborted**: `execution.abort('reason')`
+
+See [AgentExecution →](/api/types/agent-execution/) for complete API.
+
+---
+
+## See Also
+
+- **[AgentExecution →](/api/types/agent-execution/)** - Return type with watch API
+- **[RunResult →](/api/types/run-result/)** - Captured execution data
+- **[prompt() →](/api/core/prompt/)** - Multi-modal prompt helper
+- **[defineAgent() →](/api/core/defineagent/)** - Reusable agent configs
+- **[RunAgentOptions →](/api/types/configuration/)** - Complete options reference

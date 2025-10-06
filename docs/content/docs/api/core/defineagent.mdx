@@ -1,0 +1,214 @@
+---
+title: defineAgent
+description: Define reusable agent configurations
+sidebar:
+  order: 4
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+
+The `defineAgent` function creates reusable agent configurations that can be shared across tests and workflows.
+
+## Signature
+
+```typescript
+function defineAgent(config: Partial<AgentConfig> & { name: string }): AgentConfig
+```
+
+**Parameters:** Partial `AgentConfig` with required `name` field
+
+**Returns:** Complete `AgentConfig` with defaults applied
+
+---
+
+## AgentConfig Interface
+
+```typescript
+interface AgentConfig {
+  name: string;                    // Required
+  model?: string;                  // Default: DEFAULT_MODEL
+  systemPrompt?: string | object;  // Default: Claude Code default
+  allowedTools?: string[];         // Default: all tools
+  mcpServers?: Record<string, MCPServerConfig>;
+  timeoutMs?: number;              // Default: 300000 (5 min)
+  maxTurns?: number;               // Default: 20
+  workspace?: string;              // Default: current directory
+}
+```
+
+---
+
+## Basic Usage
+
+```typescript
+import { defineAgent } from '@dao/vibe-check';
+
+const refactorAgent = defineAgent({
+  name: 'refactor-agent',
+  model: 'claude-3-5-sonnet-latest',
+  maxTurns: 15,
+  systemPrompt: {
+    preset: 'default',
+    append: 'Always add comprehensive tests when refactoring.'
+  }
+});
+
+// Use in tests
+vibeTest('refactor with predefined agent', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    ...refactorAgent,
+    prompt: 'Refactor src/auth.ts'
+  });
+
+  expect(result).toCompleteAllTodos();
+});
+```
+
+---
+
+## Examples
+
+### Model-Specific Agents
+
+```typescript
+const sonnetAgent = defineAgent({
+  name: 'sonnet',
+  model: 'claude-3-5-sonnet-latest',
+  maxTurns: 20
+});
+
+const haikuAgent = defineAgent({
+  name: 'haiku',
+  model: 'claude-3-5-haiku-latest',
+  maxTurns: 10
+});
+
+// Use in matrix testing
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent]
+  },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name} refactor`, async ({ runAgent }) => {
+      const result = await runAgent({
+        ...agent,
+        prompt: 'Refactor code'
+      });
+    });
+  }
+});
+```
+
+### Tool-Restricted Agent
+
+```typescript
+const readOnlyAgent = defineAgent({
+  name: 'read-only',
+  allowedTools: ['Read', 'Grep', 'Glob'],
+  systemPrompt: 'You can only read files, not modify them.'
+});
+
+const result = await runAgent({
+  ...readOnlyAgent,
+  prompt: 'Analyze the codebase'
+});
+
+expect(result).toUseOnlyTools(['Read', 'Grep', 'Glob']);
+```
+
+### MCP-Enabled Agent
+
+```typescript
+const databaseAgent = defineAgent({
+  name: 'db-admin',
+  mcpServers: {
+    postgres: {
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-postgres'],
+      env: {
+        POSTGRES_URL: process.env.DATABASE_URL
+      },
+      allowedTools: ['query', 'schema', 'migrate']
+    }
+  }
+});
+
+const result = await runAgent({
+  ...databaseAgent,
+  prompt: 'Run database migration'
+});
+```
+
+### Specialized Agents
+
+```typescript
+const testWriterAgent = defineAgent({
+  name: 'test-writer',
+  systemPrompt: `You are a test writing expert.
+                 Write comprehensive tests with edge cases.
+                 Use Vitest and follow AAA pattern.`,
+  maxTurns: 10
+});
+
+const documentationAgent = defineAgent({
+  name: 'doc-writer',
+  systemPrompt: 'Write clear, concise documentation following Diátaxis.',
+  model: 'claude-3-5-haiku-latest' // Cheaper for docs
+});
+
+const securityAgent = defineAgent({
+  name: 'security-reviewer',
+  systemPrompt: 'Review code for security vulnerabilities.',
+  maxTurns: 15
+});
+```
+
+---
+
+## Overriding Agent Config
+
+Agent configs can be overridden at call time:
+
+```typescript
+const baseAgent = defineAgent({
+  name: 'base',
+  model: 'claude-3-5-sonnet-latest',
+  maxTurns: 10
+});
+
+// Override specific fields
+const result = await runAgent({
+  ...baseAgent,
+  maxTurns: 20,  // Override
+  prompt: 'Complex task'
+});
+```
+
+---
+
+## Default Model
+
+If no model is specified, `defineAgent` uses `DEFAULT_MODEL`:
+
+```typescript
+// Uses environment variable VIBE_DEFAULT_MODEL
+// or falls back to 'claude-3-5-sonnet-latest'
+const agent = defineAgent({
+  name: 'my-agent'
+});
+
+console.log(agent.model); // 'claude-3-5-sonnet-latest' (or env override)
+```
+
+Set via environment:
+```bash
+export VIBE_DEFAULT_MODEL=claude-3-5-haiku-latest
+```
+
+---
+
+## See Also
+
+- **[runAgent() →](/api/core/runagent/)** - Execute agents
+- **[AgentConfig →](/api/types/configuration/)** - Complete interface
+- **[MCPServerConfig →](/api/types/configuration/)** - MCP server config
