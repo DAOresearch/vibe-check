@@ -1,7 +1,10 @@
 ---
 description: Phase 4 - Re-audit specification to verify all issues resolved and implementation-ready
-model: claude-sonnet-4-20250514
+model: claude-sonnet-4-5-20250929
 allowed-tools: Read, Write, Glob, Grep, TodoWrite
+thinking:
+  enabled: true
+  budget: tokens
 ---
 
 # Phase 4: Validation

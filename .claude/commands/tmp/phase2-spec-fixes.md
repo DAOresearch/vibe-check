@@ -1,7 +1,10 @@
 ---
 description: Phase 2 - Fix all 24 specification issues in organized batches
-model: claude-sonnet-4-20250514
+model: claude-sonnet-4-5-20250929
 allowed-tools: Read, Write, Edit, TodoWrite
+thinking:
+  enabled: true
+  budget: tokens
 ---
 
 # Phase 2: Specification Fixes

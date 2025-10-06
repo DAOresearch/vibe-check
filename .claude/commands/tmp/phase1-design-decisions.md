@@ -1,7 +1,10 @@
 ---
 description: Phase 1 - Make architectural design decisions for 5 critical questions from audit
-model: claude-sonnet-4-20250514
+model: claude-sonnet-4-5-20250929
 allowed-tools: Read, Write, Edit
+thinking:
+  enabled: true
+  budget: tokens
 ---
 
 # Phase 1: Design Decisions

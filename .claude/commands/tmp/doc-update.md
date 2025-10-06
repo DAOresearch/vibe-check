@@ -1,7 +1,10 @@
 ---
 description: Update a single documentation file to match specification v1.4
-model: claude-sonnet-4-20250514
+model: claude-sonnet-4-5-20250929
 allowed-tools: Read, Write, Edit, Glob, TodoWrite
+thinking:
+  enabled: true
+  budget: tokens
 ---
 
 # Doc Update - Single File

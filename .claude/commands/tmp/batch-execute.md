@@ -1,7 +1,10 @@
 ---
 description: Execute a single batch of specification fixes from Phase 2
-model: claude-sonnet-4-20250514
+model: claude-sonnet-4-5-20250929
 allowed-tools: Read, Write, Edit, TodoWrite
+thinking:
+  enabled: true
+  budget: tokens
 ---
 
 # Batch Execute - Spec Fixes

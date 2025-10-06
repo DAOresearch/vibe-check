@@ -80,25 +80,25 @@ Each phase creates a tracking document:
 ## Command Details
 
 ### Phase 1: Design Decisions
-- **Model:** claude-sonnet-4-20250514
+- **Model:** claude-sonnet-4-5-20250929 (with extended thinking)
 - **Tools:** Read, Write, Edit
 - **Duration:** 1-2 hours (includes discussion)
 - **Output:** design-decisions.md with all 5 questions answered
 
 ### Phase 2: Spec Fixes
-- **Model:** claude-sonnet-4-20250514
+- **Model:** claude-sonnet-4-5-20250929 (with extended thinking)
 - **Tools:** Read, Write, Edit, TodoWrite
 - **Duration:** 4-6 hours
 - **Output:** Updated technical-specification.md (v1.4) + tracking doc
 
 ### Phase 3: Documentation Updates
-- **Model:** claude-sonnet-4-20250514
+- **Model:** claude-sonnet-4-5-20250929 (with extended thinking)
 - **Tools:** Read, Write, Edit, Glob, TodoWrite
 - **Duration:** 4-6 hours
 - **Output:** 7 updated doc files + checklist
 
 ### Phase 4: Validation
-- **Model:** claude-sonnet-4-20250514
+- **Model:** claude-sonnet-4-5-20250929 (with extended thinking)
 - **Tools:** Read, Write, Glob, Grep, TodoWrite
 - **Duration:** 1 hour
 - **Output:** audit-resolution-summary.md + sign-off
@@ -127,7 +127,8 @@ After all phases:
 - Batches in Phase 2 have dependencies (do in order)
 - Phase 3 can parallelize doc files
 - Phase 4 is the quality gate
-- All commands use Sonnet 4 for consistency
+- All commands use **Claude Sonnet 4.5** (claude-sonnet-4-5-20250929) with extended thinking enabled
+- Extended thinking provides maximum reasoning budget for complex analysis
 - Each command has appropriate tool access
 
 ## Source
