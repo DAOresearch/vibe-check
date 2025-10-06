@@ -1,6 +1,5 @@
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
-import { ion } from "starlight-ion-theme";
 
 // https://astro.build/config
 export default defineConfig({
@@ -31,21 +30,26 @@ export default defineConfig({
 				},
 				{
 					label: "API Reference",
+					collapsed: false,
 					items: [
 						{
 							label: "Core",
+							collapsed: false,
 							items: [
-								{ label: "vibeTest", link: "/api/core/vibetest/" },
-								{ label: "vibeWorkflow", link: "/api/core/vibeworkflow/" },
-								{ label: "runAgent", link: "/api/core/runagent/" },
-								{ label: "defineAgent", link: "/api/core/defineagent/" },
-								{ label: "judge", link: "/api/core/judge/" },
+								{ slug: "api/vibetest" },
+								{ slug: "api/vibeworkflow" },
+								{ slug: "api/runagent" },
+								{ slug: "api/defineagent" },
+								{ slug: "api/judge" },
 							],
 						},
 						{
 							label: "Utilities",
+							collapsed: false,
 							items: [
-								{ label: "defineVibeConfig", link: "/api/utilities/config/" },
+								{ slug: "api/prompt" },
+								{ slug: "api/matchers" },
+								{ slug: "api/types" },
 							],
 						},
 					],
@@ -71,7 +75,6 @@ export default defineConfig({
 					autogenerate: { directory: "contributing" },
 				},
 			],
-			plugins: [ion()],
 			customCss: ["./docs/styles/custom.css"],
 		}),
 	],
