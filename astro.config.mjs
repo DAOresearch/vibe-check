@@ -31,7 +31,24 @@ export default defineConfig({
 				},
 				{
 					label: "API Reference",
-					autogenerate: { directory: "api" },
+					items: [
+						{
+							label: "Core",
+							items: [
+								{ label: "vibeTest", link: "/api/core/vibetest/" },
+								{ label: "vibeWorkflow", link: "/api/core/vibeworkflow/" },
+								{ label: "runAgent", link: "/api/core/runagent/" },
+								{ label: "defineAgent", link: "/api/core/defineagent/" },
+								{ label: "judge", link: "/api/core/judge/" },
+							],
+						},
+						{
+							label: "Utilities",
+							items: [
+								{ label: "defineVibeConfig", link: "/api/utilities/config/" },
+							],
+						},
+					],
 				},
 				{
 					label: "Examples",
