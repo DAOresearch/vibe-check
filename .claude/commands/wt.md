@@ -97,8 +97,29 @@ fi
 ```
 
 4. Determine worktree path:
-- If $3 exists: `WORKTREE_PATH=$3`
-- Else: `WORKTREE_PATH="../worktrees/$REPO_NAME/$2"`
+**IMPORTANT:** Calculate path from repo root, not current directory
+```bash
+# Get parent of repo root (where worktrees should live)
+WORKTREE_BASE=$(dirname "$REPO_ROOT")
+
+if [ -n "$3" ]; then
+  # User provided custom path - convert to absolute
+  WORKTREE_PATH=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
+else
+  # Standard path: /path/to/worktrees/<repo-name>/<branch-name>
+  # For branches with slashes (e.g., spike/hook-capture), use last component
+  BRANCH_DIR=$(basename "$2")
+  WORKTREE_PATH="$WORKTREE_BASE/worktrees/$REPO_NAME/$BRANCH_DIR"
+fi
+
+# Validate path doesn't contain nested /worktrees/ pattern
+if echo "$WORKTREE_PATH" | grep -q "worktrees/.*worktrees/"; then
+  echo "❌ Invalid path: nested /worktrees/ directories detected"
+  echo "   This suggests incorrect relative path calculation"
+  echo "   Path would be: $WORKTREE_PATH"
+  exit 1
+fi
+```
 
 5. Create worktree:
 ```bash
@@ -138,6 +159,11 @@ Show all worktrees with their tmux window mappings.
 
 Parse the worktree list and tmux windows data from the current state, then match them by comparing paths.
 
+**IMPORTANT Path Matching:**
+- Resolve all paths to absolute canonical paths (remove `.`, `..`, trailing slashes)
+- Match by canonical path comparison
+- If worktree path contains nested `/worktrees/` directories, flag as "⚠ incorrect path"
+
 Display as a list format (NOT a table):
 
 ```
@@ -150,19 +176,21 @@ WORKTREES ([N] total):
 
 1. [BRANCH_NAME]
    Path: [WORKTREE_PATH]
-   Tmux: [WINDOW_INDEX]:[WINDOW_NAME] [✓ synced / ⚠ no window]
+   Tmux: [WINDOW_INDEX]:[WINDOW_NAME] [✓ synced / ⚠ no window / ⚠ incorrect path]
 
 2. [BRANCH_NAME]
    Path: [WORKTREE_PATH]
-   Tmux: [WINDOW_INDEX]:[WINDOW_NAME] [✓ synced / ⚠ no window]
+   Tmux: [WINDOW_INDEX]:[WINDOW_NAME] [✓ synced / ⚠ no window / ⚠ incorrect path]
 
 Summary: N worktrees, M tmux windows
+[If issues detected: "Run '/wt cleanup' to fix issues"]
 ```
 
 **Status indicators:**
-- ✓ synced = worktree has matching tmux window
+- ✓ synced = worktree has matching tmux window at correct path
 - ⚠ no window = worktree exists but no tmux window
-- ⚠ orphaned = tmux window exists but worktree path doesn't match
+- ⚠ incorrect path = tmux window exists but path doesn't match worktree OR path contains nested `/worktrees/` pattern
+- ⚠ orphaned = tmux window exists but no matching worktree
 </workflow-list>
 
 ---
@@ -170,7 +198,7 @@ Summary: N worktrees, M tmux windows
 ## CLEANUP: /wt cleanup
 
 <workflow-cleanup>
-Remove orphaned worktrees and tmux windows.
+Remove orphaned worktrees and tmux windows, and fix path issues.
 
 **Execute these steps:**
 
@@ -182,26 +210,48 @@ Show count, ask "Remove N stale worktree references? (y/n)"
 If yes: `git worktree prune -v`
 
 2. Find orphaned tmux windows:
-- Get all windows and their paths
+- Get all windows and their paths (using canonical paths)
 - Compare against `git worktree list`
-- Identify windows whose paths don't exist or aren't in worktree list
+- Identify windows whose paths don't exist, aren't in worktree list, OR contain nested `/worktrees/` pattern
 
-Show count, ask "Close N orphaned tmux windows? (y/n)"
+Show count, ask "Close N orphaned/incorrect tmux windows? (y/n)"
 If yes: `tmux kill-window -t $SESSION_NAME:$WINDOW_INDEX` for each
 
 3. Find worktrees without windows:
-- Compare worktree list against tmux windows
+- Compare worktree list against tmux windows (using canonical path matching)
 - Identify worktrees missing tmux windows
 
-Show count, ask "Create N missing tmux windows? (y/n)"
-If yes: Create window for each missing worktree
+If count > 0:
+  Show count, ask "Create N missing tmux windows? (y/n)"
+  If yes: 
+    ```bash
+    for each missing worktree:
+      tmux new-window -t "$SESSION_NAME": -n "$BRANCH_NAME" -c "$WORKTREE_PATH"
+    ```
 
-4. Show summary:
+4. Detect incorrectly placed worktrees:
+- Check if any worktree paths contain nested `/worktrees/` pattern (e.g., `/path/to/worktrees/repo/worktrees/...`)
+- These indicate worktrees created with incorrect relative paths
+
+If detected, show warning:
+```
+⚠️  Detected N worktrees at incorrect paths (nested /worktrees/ directories):
+  - /path/to/worktrees/repo/worktrees/...
+
+These were likely created with incorrect relative paths.
+Fix by:
+  1. Backing up any uncommitted changes
+  2. Running: git worktree remove <incorrect-path>
+  3. Recreating with: /wt create <branch-name>
+```
+
+5. Show summary:
 ```
 🧹 Cleanup Report:
 Stale Worktrees: N removed
 Orphaned Windows: M closed
 Missing Windows: P created
+Path Issues: Q detected
 ✓ Cleanup complete
 ```
 </workflow-cleanup>
