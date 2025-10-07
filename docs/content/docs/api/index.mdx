@@ -33,8 +33,8 @@ Essential functions for testing and automation.
 Write tests with custom matchers, fixtures, and auto-captured context.
 
 ```typescript
-vibeTest('example', async ({ runAgent, judge, expect }) => {
-  const result = await runAgent({ agent, prompt: 'task' });
+vibeTest('example', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: 'implement feature X' });
   expect(result).toHaveChangedFiles(['src/index.ts']);
 });
 ```
@@ -43,6 +43,9 @@ vibeTest('example', async ({ runAgent, judge, expect }) => {
 Build multi-stage automation workflows with cumulative context.
 
 ```typescript
+const builder = defineAgent({ name: 'builder', model: 'claude-sonnet-4' });
+const tester = defineAgent({ name: 'tester', model: 'claude-sonnet-4' });
+
 vibeWorkflow('deploy', async (wf) => {
   await wf.stage('build', { agent: builder, prompt: '/build' });
   await wf.stage('test', { agent: tester, prompt: '/test' });
@@ -64,8 +67,10 @@ const myAgent = defineAgent({
 Execute agents directly outside of tests/workflows.
 
 ```typescript
+const myAgent = defineAgent({ name: 'my-agent', model: 'claude-sonnet-4' });
+
 const result = await runAgent({
-  agent: myAgent,
+  agent: myAgent,  // Optional: defaults to claude-sonnet-4
   prompt: 'implement feature',
   workspace: '/path/to/repo'
 });
