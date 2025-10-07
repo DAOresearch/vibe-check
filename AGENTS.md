@@ -1,5 +1,13 @@
 # Vibe-Check Implementation Tracking
 
+> **📍 Why is this file at the root?**
+>
+> This file is located at the project root (not `.claude/agents/`) because it provides context
+> for **all coding agents** (Claude Code, Cursor, Windsurf, Aider, etc.), not just Claude Code.
+>
+> It serves as the primary implementation tracking document for the entire vibe-check project,
+> ensuring consistent context across different AI coding tools and team members.
+
 **This directory contains implementation planning and tracking for the Vibe-Check framework.**
 
 > **Note**: This is NOT the main project README. For user-facing documentation, see [README.md](./README.md).
