@@ -1,0 +1,507 @@
+---
+title: Context Manager
+description: How ContextManager orchestrates automatic capture of execution data
+sidebar:
+  order: 2
+---
+
+The **ContextManager** is the central orchestrator for automatic context capture. It manages the entire lifecycle from starting hook capture, to collecting events during execution, to finalizing the RunResult after completion.
+
+## Responsibilities
+
+The ContextManager handles four critical phases:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. INITIALIZATION                                           │
+├─────────────────────────────────────────────────────────────┤
+│  • Create RunBundle directory (.vibe-artifacts/{testId}/)   │
+│  • Set VIBE_BUNDLE_DIR environment variable                 │
+│  • Initialize in-memory state (metrics, todos, etc.)        │
+│  • Capture git state (before)                               │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 2. CAPTURE (During Execution)                               │
+├─────────────────────────────────────────────────────────────┤
+│  • SDK events → onSDKEvent() → events.ndjson                │
+│  • Hook payloads → onHookPayload() → hooks.ndjson           │
+│  • Watchers → getPartialResult() → PartialRunResult         │
+│  • All writes non-blocking (async append)                   │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 3. FINALIZATION (After Execution)                           │
+├─────────────────────────────────────────────────────────────┤
+│  • Process hooks.ndjson (correlate tool calls)              │
+│  • Capture git state (after) + compute diff                 │
+│  • Read file content (before/after from git)                │
+│  • Store files content-addressed (SHA-256 + gzip)           │
+│  • Generate summary.json                                    │
+│  • Return lazy RunResult                                    │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 4. CLEANUP (Optional)                                       │
+├─────────────────────────────────────────────────────────────┤
+│  • Remove temp files                                        │
+│  • Compress old bundles (if configured)                     │
+│  • Enforce retention policy (30-day default)                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Class Structure
+
+```typescript
+export class ContextManager {
+  // Configuration
+  private readonly testId: string;
+  private readonly workspace: string;
+  private readonly bundleDir: string;
+  private readonly annotate?: AnnotateFn;
+
+  // In-memory state (lightweight)
+  private metrics: MetricsAccumulator;
+  private todos: TodoTracker;
+  private gitBefore?: GitState;
+
+  // File handles (streaming writes)
+  private eventsWriter: WriteStream;
+  private hooksWriter: WriteStream;
+
+  constructor(opts: {
+    testId: string;
+    workspace?: string;
+    annotate?: AnnotateFn;
+  }) {
+    this.testId = opts.testId;
+    this.workspace = opts.workspace || process.cwd();
+    this.bundleDir = join('.vibe-artifacts', testId);
+    this.annotate = opts.annotate;
+
+    // Create bundle directory
+    await fs.mkdir(this.bundleDir, { recursive: true });
+    await fs.mkdir(join(this.bundleDir, 'files', 'before'), { recursive: true });
+    await fs.mkdir(join(this.bundleDir, 'files', 'after'), { recursive: true });
+
+    // Open file handles for streaming writes
+    this.eventsWriter = createWriteStream(join(this.bundleDir, 'events.ndjson'));
+    this.hooksWriter = createWriteStream(join(this.bundleDir, 'hooks.ndjson'));
+
+    // Capture git state before execution
+    this.gitBefore = await this.captureGitState();
+
+    // Set environment variable for hook scripts
+    process.env.VIBE_BUNDLE_DIR = this.bundleDir;
+  }
+
+  readonly bundleDir: string;
+
+  async onSDKEvent(evt: SDKEvent): Promise<void> { ... }
+  async onHookPayload(json: unknown): Promise<void> { ... }
+  async finalize(): Promise<RunResult> { ... }
+  getPartialResult(): PartialRunResult { ... }
+  async processHookEvent(evt: HookEvent): Promise<PartialRunResult> { ... }
+}
+```
+
+## Key Methods
+
+### 1. onSDKEvent()
+
+**Purpose:** Capture SDK stream events (messages, usage, todos)
+
+**Called by:** Agent runner during SDK stream
+
+**Implementation:**
+```typescript
+async onSDKEvent(evt: SDKEvent): Promise<void> {
+  // Write to NDJSON file (non-blocking)
+  await this.eventsWriter.write(JSON.stringify(evt) + '\n');
+
+  // Update in-memory state
+  if (evt.type === 'usage') {
+    this.metrics.addTokens(evt.tokens.input + evt.tokens.output);
+    this.metrics.addCost(evt.cost);
+  }
+
+  if (evt.type === 'todo') {
+    this.todos.update(evt.action, evt.text, evt.status);
+  }
+}
+```
+
+**Key points:**
+- Non-blocking writes (no performance impact on execution)
+- In-memory state updated for watchers
+- Full events persisted for reporters
+
+### 2. onHookPayload()
+
+**Purpose:** Capture Claude Code hook events
+
+**Called by:** Hook script (writes to hooks.ndjson directly)
+
+**Note:** This method is **not used during execution**. Hook scripts write directly to `hooks.ndjson` for performance. The ContextManager reads the file during finalization.
+
+### 3. getPartialResult()
+
+**Purpose:** Provide real-time state for watchers
+
+**Called by:** AgentRunner when invoking watchers
+
+**Implementation:**
+```typescript
+getPartialResult(): PartialRunResult {
+  return {
+    metrics: {
+      totalTokens: this.metrics.totalTokens,
+      totalCostUsd: this.metrics.totalCostUsd,
+      durationMs: Date.now() - this.startTime,
+      toolCalls: this.metrics.toolCallCount,
+      filesChanged: this.metrics.filesChangedCount,
+    },
+    tools: {
+      all: () => this.correlatedToolCalls,
+      failed: () => this.correlatedToolCalls.filter(t => !t.ok),
+      succeeded: () => this.correlatedToolCalls.filter(t => t.ok),
+      inProgress: () => this.pendingToolCalls,
+    },
+    todos: this.todos.getAll(),
+    files: {
+      changed: () => this.trackedFileChanges,
+      get: (path) => this.trackedFileChanges.find(f => f.path === path),
+    },
+    isComplete: false,
+  };
+}
+```
+
+**Key points:**
+- Returns snapshot of current state
+- Lightweight (no disk I/O)
+- Updated after each significant event (PostToolUse, TodoUpdate)
+
+### 4. processHookEvent()
+
+**Purpose:** Update partial state after each hook event
+
+**Called by:** AgentRunner after each PostToolUse/Notification
+
+**Implementation:**
+```typescript
+async processHookEvent(evt: HookEvent): Promise<PartialRunResult> {
+  if (evt.hook === 'PostToolUse') {
+    // Correlate with PreToolUse
+    const preEvent = this.pendingPreToolUse.get(evt.tool_name);
+    if (preEvent) {
+      const toolCall = this.correlateToolCall(preEvent, evt);
+      this.correlatedToolCalls.push(toolCall);
+      this.pendingPreToolUse.delete(evt.tool_name);
+      this.metrics.toolCallCount++;
+    }
+  }
+
+  if (evt.hook === 'TodoUpdate') {
+    this.todos.update(evt.action, evt.text, evt.status);
+  }
+
+  // Return updated partial result for watchers
+  return this.getPartialResult();
+}
+```
+
+**Execution Guarantees:**
+- **Sequential execution** - Watchers run one at a time (no parallelism)
+- **No race conditions** - Each watcher completes before the next starts
+- **Fail-fast** - If any watcher throws, execution aborts immediately
+
+### 5. finalize()
+
+**Purpose:** Finalize execution and return RunResult
+
+**Called by:** Agent runner after execution completes
+
+**Implementation:**
+```typescript
+async finalize(): Promise<RunResult> {
+  // 1. Close file handles
+  await this.eventsWriter.end();
+  await this.hooksWriter.end();
+
+  // 2. Process hooks.ndjson (correlate tool calls)
+  const hookEvents = await this.readNDJSON(join(this.bundleDir, 'hooks.ndjson'));
+  const toolCalls = this.correlateToolCalls(hookEvents);
+
+  // 3. Capture git state (after)
+  const gitAfter = await this.captureGitState();
+
+  // 4. Compute file changes
+  const fileChanges = await this.computeFileChanges(this.gitBefore, gitAfter);
+
+  // 5. Store file content (content-addressed)
+  await this.storeFileContent(fileChanges);
+
+  // 6. Generate summary.json
+  const summary = this.buildSummary({
+    metrics: this.metrics,
+    git: { before: this.gitBefore, after: gitAfter },
+    toolCalls,
+    fileChanges,
+    todos: this.todos.getAll(),
+  });
+  await fs.writeFile(join(this.bundleDir, 'summary.json'), JSON.stringify(summary));
+
+  // 7. Return lazy RunResult
+  return new RunResult({
+    bundleDir: this.bundleDir,
+    summary,
+  });
+}
+```
+
+**Steps in detail:**
+
+#### Step 2: Correlate Tool Calls
+
+```typescript
+private correlateToolCalls(hookEvents: HookEvent[]): ToolCall[] {
+  const toolCalls: ToolCall[] = [];
+  const pending = new Map<string, PreToolUseEvent>();
+
+  for (const evt of hookEvents) {
+    if (evt.hook === 'PreToolUse') {
+      // Store for correlation
+      pending.set(evt.tool_name, evt);
+    } else if (evt.hook === 'PostToolUse') {
+      // Find matching PreToolUse
+      const preEvent = pending.get(evt.tool_name);
+      if (preEvent) {
+        toolCalls.push({
+          name: evt.tool_name,
+          input: JSON.parse(preEvent.tool_input || '{}'),
+          output: JSON.parse(evt.tool_response || '{}'),
+          ok: true,
+          startedAt: preEvent.ts,
+          endedAt: evt.ts,
+          durationMs: evt.ts - preEvent.ts,
+          cwd: preEvent.cwd,
+        });
+        pending.delete(evt.tool_name);
+      }
+    }
+  }
+
+  // Handle unmatched PreToolUse (tool in progress or failed)
+  for (const [name, preEvent] of pending) {
+    toolCalls.push({
+      name,
+      input: JSON.parse(preEvent.tool_input || '{}'),
+      ok: false,
+      startedAt: preEvent.ts,
+      cwd: preEvent.cwd,
+    });
+  }
+
+  return toolCalls;
+}
+```
+
+#### Step 3: Capture Git State
+
+```typescript
+private async captureGitState(): Promise<GitState | undefined> {
+  // Check if workspace is a git repo
+  const isGit = await this.detectGitRepo();
+  if (!isGit) return undefined;
+
+  // Capture HEAD commit
+  const head = await execCommand('git rev-parse HEAD', { cwd: this.workspace });
+
+  // Check working tree status
+  const statusCode = await execCommand('git diff --quiet', {
+    cwd: this.workspace,
+    ignoreExitCode: true,
+  });
+  const dirty = statusCode !== 0;
+
+  return { head: head.trim(), dirty };
+}
+
+private async detectGitRepo(): Promise<boolean> {
+  try {
+    await execCommand('git rev-parse --is-inside-work-tree', { cwd: this.workspace });
+    return true;
+  } catch {
+    return false;
+  }
+}
+```
+
+#### Step 4: Compute File Changes
+
+```typescript
+private async computeFileChanges(before?: GitState, after?: GitState): Promise<FileChange[]> {
+  if (!before || !after) return [];
+
+  // Get list of changed files
+  const diffSummary = await execCommand(
+    'git diff --name-status HEAD~1 HEAD',
+    { cwd: this.workspace }
+  );
+
+  const changes: FileChange[] = [];
+  for (const line of diffSummary.split('\n')) {
+    const [status, ...pathParts] = line.split('\t');
+    const path = pathParts.join('\t');
+
+    changes.push({
+      path,
+      changeType: this.mapGitStatus(status),
+      before: await this.getFileState(path, 'HEAD~1'),
+      after: await this.getFileState(path, 'HEAD'),
+    });
+  }
+
+  return changes;
+}
+
+private async getFileState(path: string, ref: string): Promise<FileState | undefined> {
+  try {
+    const content = await execCommand(`git show ${ref}:${path}`, { cwd: this.workspace });
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    return {
+      sha256,
+      size: Buffer.byteLength(content),
+      content, // Will be stored separately
+    };
+  } catch {
+    return undefined; // File doesn't exist at this ref
+  }
+}
+```
+
+#### Step 5: Store File Content
+
+```typescript
+private async storeFileContent(changes: FileChange[]): Promise<void> {
+  for (const change of changes) {
+    if (change.before) {
+      await this.storeContentAddressed(change.before.sha256, change.before.content);
+    }
+    if (change.after) {
+      await this.storeContentAddressed(change.after.sha256, change.after.content);
+    }
+  }
+}
+
+private async storeContentAddressed(sha256: string, content: string): Promise<void> {
+  const dir = join(this.bundleDir, 'files', 'before');
+  const filePath = join(dir, `${sha256}.txt`);
+
+  // Skip if already exists (deduplication)
+  if (await fs.exists(filePath)) return;
+
+  // Compress large files
+  if (content.length > 10 * 1024) {
+    const compressed = await gzip(content);
+    await fs.writeFile(`${filePath}.gz`, compressed);
+  } else {
+    await fs.writeFile(filePath, content);
+  }
+}
+```
+
+## Error Handling
+
+### Graceful Degradation
+
+**Hook failures don't fail tests:**
+
+```typescript
+async onHookPayload(json: unknown): Promise<void> {
+  try {
+    await this.hooksWriter.write(JSON.stringify(json) + '\n');
+  } catch (err) {
+    // Log warning but don't throw
+    console.warn('Hook capture failed:', err);
+    this.hookCaptureStatus.warnings.push(err.message);
+  }
+}
+```
+
+**Git detection failures:**
+
+```typescript
+private async captureGitState(): Promise<GitState | undefined> {
+  try {
+    const isGit = await this.detectGitRepo();
+    if (!isGit) {
+      console.warn('Workspace is not a git repository; git state will be unavailable');
+      return undefined;
+    }
+    // ... proceed with git capture
+  } catch (err) {
+    console.warn('Git state capture failed:', err);
+    return undefined; // Gracefully return undefined
+  }
+}
+```
+
+**Partial data handling:**
+
+```typescript
+async finalize(): Promise<RunResult> {
+  const hookCaptureStatus = {
+    complete: true,
+    missingEvents: [] as string[],
+    warnings: [] as string[],
+  };
+
+  // Correlate tool calls (best effort)
+  try {
+    const toolCalls = this.correlateToolCalls(hookEvents);
+  } catch (err) {
+    console.warn('Tool call correlation failed:', err);
+    hookCaptureStatus.complete = false;
+    hookCaptureStatus.warnings.push(err.message);
+  }
+
+  // Return RunResult with status
+  return new RunResult({
+    bundleDir: this.bundleDir,
+    summary,
+    hookCaptureStatus,
+  });
+}
+```
+
+## Performance Considerations
+
+### Non-Blocking Writes
+
+**SDK events and hooks write to disk asynchronously:**
+- No blocking I/O during agent execution
+- Write streams buffer data in memory
+- Flushes happen in background
+
+### Lazy Loading
+
+**Only summary data kept in memory:**
+- ContextManager holds ~50 KB per test
+- Full file content stays on disk
+- RunResult provides lazy accessors
+
+### Content Deduplication
+
+**SHA-256 hashing eliminates duplicates:**
+- Unchanged files stored once (before = after)
+- Saves disk space and I/O
+- Fast equality checks without content comparison
+
+## See Also
+
+- [Run Bundle](/explanation/architecture/run-bundle) - On-disk storage structure
+- [Hook Integration](/explanation/architecture/hook-integration) - Hook capture mechanism
+- [Auto-Capture](/explanation/concepts/auto-capture) - What data is captured
+- [Lazy Loading](/explanation/concepts/lazy-loading) - Memory-efficient access patterns

@@ -1,0 +1,203 @@
+---
+title: API Reference
+description: Complete API documentation for vibe-check
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Complete technical reference for all vibe-check APIs, types, and utilities.
+
+## Quick Navigation
+
+<CardGrid>
+  <Card title="Core APIs" icon="seti:javascript">
+    Functions you'll use in every test and workflow.
+  </Card>
+
+  <Card title="Types" icon="seti:typescript">
+    [TypeScript interfaces and types](/api/types/) for context, results, and configuration.
+  </Card>
+
+  <Card title="Utilities" icon="seti:config">
+    [Helper functions](/api/utilities/) for configuration and test setup.
+  </Card>
+</CardGrid>
+
+---
+
+## Core APIs
+
+Essential functions for testing and automation.
+
+### [vibeTest](/api/core/vibetest/)
+Write tests with custom matchers, fixtures, and auto-captured context.
+
+```typescript
+vibeTest('example', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({ agent, prompt: 'task' });
+  expect(result).toHaveChangedFiles(['src/index.ts']);
+});
+```
+
+### [vibeWorkflow](/api/core/vibeworkflow/)
+Build multi-stage automation workflows with cumulative context.
+
+```typescript
+vibeWorkflow('deploy', async (wf) => {
+  await wf.stage('build', { agent: builder, prompt: '/build' });
+  await wf.stage('test', { agent: tester, prompt: '/test' });
+});
+```
+
+### [defineAgent](/api/core/defineagent/)
+Create reusable agent definitions with configuration.
+
+```typescript
+const myAgent = defineAgent({
+  name: 'my-agent',
+  model: 'claude-sonnet-4',
+  maxTurns: 10
+});
+```
+
+### [runAgent](/api/core/runagent/)
+Execute agents directly outside of tests/workflows.
+
+```typescript
+const result = await runAgent({
+  agent: myAgent,
+  prompt: 'implement feature',
+  workspace: '/path/to/repo'
+});
+```
+
+### [judge](/api/core/judge/)
+Evaluate agent output quality with LLM-based rubrics.
+
+```typescript
+const judgeResult = await judge(result, {
+  rubric: {
+    criteria: [
+      { name: 'correctness', weight: 0.7 },
+      { name: 'style', weight: 0.3 }
+    ]
+  }
+});
+```
+
+---
+
+## Types
+
+TypeScript interfaces for all vibe-check objects.
+
+### Context Interfaces
+- [VibeTestContext](/api/types/test-context/) - Test fixture context
+- [WorkflowContext](/api/types/workflow-context/) - Workflow orchestration context
+- [AgentExecution](/api/types/agent-execution/) - Real-time execution monitoring
+
+### Result Interfaces
+- [RunResult](/api/types/run-result/) - Complete agent run results
+- [PartialRunResult](/api/types/partial-result/) - In-progress execution state
+- [FileChange](/api/types/file-change/) - File modification details
+- [ToolCall](/api/types/tool-call/) - Tool invocation records
+
+### Evaluation Types
+- [Rubric & JudgeResult](/api/types/rubric/) - Quality evaluation types
+
+### Configuration
+- [Configuration Types](/api/types/configuration/) - Agent and test configuration options
+
+### Matchers
+- [Custom Matchers](/api/types/matchers/) - All available assertion matchers
+
+---
+
+## Utilities
+
+Helper functions for configuration and setup.
+
+### [defineVibeConfig](/api/utilities/config/)
+Configure vibe-check defaults, reporters, and globals.
+
+```typescript
+export default defineVibeConfig({
+  reporters: ['cost', 'html'],
+  defaults: {
+    workspace: '/path/to/repo',
+    maxTurns: 10
+  }
+});
+```
+
+---
+
+## Usage Patterns
+
+### Testing Pattern
+```typescript
+import { vibeTest, defineAgent } from '@dao/vibe-check';
+
+const agent = defineAgent({
+  name: 'test-agent',
+  model: 'claude-sonnet-4'
+});
+
+vibeTest('should implement feature', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent,
+    prompt: 'implement feature X',
+    workspace: '/path/to/repo'
+  });
+
+  expect(result).toHaveChangedFiles(['src/feature.ts']);
+  expect(result).toCompleteAllTodos();
+});
+```
+
+### Automation Pattern
+```typescript
+import { vibeWorkflow, defineAgent } from '@dao/vibe-check';
+
+const builder = defineAgent({ name: 'builder' });
+const tester = defineAgent({ name: 'tester' });
+
+vibeWorkflow('ci-pipeline', async (wf) => {
+  const build = await wf.stage('build', {
+    agent: builder,
+    prompt: '/build'
+  });
+
+  await wf.stage('test', {
+    agent: tester,
+    prompt: '/test'
+  });
+}, { defaults: { workspace: '/repo' } });
+```
+
+### Evaluation Pattern
+```typescript
+import { vibeTest, defineAgent, defineTestSuite } from '@dao/vibe-check';
+
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, opusAgent, haikuAgent],
+    maxTurns: [8, 16]
+  },
+  test: ({ agent, maxTurns }) => {
+    vibeTest(`${agent.name} with ${maxTurns} turns`, async ({ runAgent, judge }) => {
+      const result = await runAgent({ agent, prompt: 'task', maxTurns });
+      const judgeResult = await judge(result, { rubric });
+      expect(judgeResult.passed).toBe(true);
+    });
+  }
+});
+```
+
+---
+
+## Related Documentation
+
+- **[Getting Started](/getting-started/)** - Tutorials for learning vibe-check
+- **[How-To Guides](/guides/)** - Task-oriented guides for common use cases
+- **[Explanation](/explanation/)** - Architecture and design deep dives

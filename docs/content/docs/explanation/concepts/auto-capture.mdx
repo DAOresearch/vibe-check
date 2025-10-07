@@ -1,0 +1,364 @@
+---
+title: Automatic Context Capture
+description: How vibe-check automatically captures git state, file changes, tool calls, and execution metadata without manual artifact management
+sidebar:
+  order: 2
+---
+
+One of vibe-check's core design principles is **automatic context capture**: when you execute an agent, the framework captures everything you need for analysis, debugging, and reporting—without any manual artifact management.
+
+## What Gets Captured
+
+Every `runAgent()` call automatically captures:
+
+### 1. Git State (Before & After)
+```typescript
+const result = await runAgent({ agent, prompt: 'Refactor auth module' });
+
+console.log(result.git.before);
+// { head: 'abc123', dirty: false }
+
+console.log(result.git.after);
+// { head: 'abc123', dirty: true }
+
+console.log(result.git.changedCount); // 3
+```
+
+**Includes:**
+- Commit hash (HEAD)
+- Working tree status (dirty/clean)
+- Files changed (count + detailed summary)
+
+### 2. File Changes (Full Content)
+```typescript
+const file = result.files.get('src/auth.ts');
+
+// Before/after content with lazy loading
+const before = await file.before?.text();
+const after = await file.after?.text();
+
+// Diff statistics
+console.log(file.stats);
+// { added: 42, deleted: 18, chunks: 7 }
+
+// Structured patch
+const patch = await file.patch('json');
+```
+
+**Includes:**
+- Full file content (before/after)
+- Change type (added/modified/deleted/renamed)
+- Diff statistics (lines added/deleted/chunks)
+- Git patches (unified or JSON format)
+
+### 3. Tool Calls (Correlated Events)
+```typescript
+const tools = result.tools.all();
+
+tools.forEach(call => {
+  console.log(call.name); // 'Edit', 'Bash', 'Read', etc.
+  console.log(call.input); // Tool parameters
+  console.log(call.output); // Tool results
+  console.log(call.ok); // Success/failure
+  console.log(call.durationMs); // Execution time
+});
+
+// Query specific tools
+const edits = tools.filter(t => t.name === 'Edit');
+const failedCalls = result.tools.failed();
+```
+
+**Includes:**
+- Tool name and parameters
+- Tool output/response
+- Success/failure status
+- Timing (start/end/duration)
+- Working directory context
+
+### 4. Conversation Messages
+```typescript
+result.messages.forEach(msg => {
+  console.log(msg.role); // 'assistant', 'user', 'tool'
+  console.log(msg.summary); // First 120 chars
+  console.log(msg.ts); // Unix timestamp
+
+  // Load full content lazily
+  const full = await msg.load();
+});
+```
+
+**Includes:**
+- All SDK messages (user, assistant, tool results)
+- Message summaries (in-memory)
+- Full content (lazy-loaded from disk)
+
+### 5. Timeline Events
+```typescript
+for await (const event of result.timeline.events()) {
+  console.log(event.type); // 'sdk-message', 'hook', 'todo'
+  console.log(event.ts); // Timestamp
+}
+```
+
+**Includes:**
+- SDK message events
+- Hook events (tool use, notifications, etc.)
+- TODO status updates
+- Unified chronological timeline
+
+### 6. Execution Metrics
+```typescript
+console.log(result.metrics);
+// {
+//   totalTokens: 15420,
+//   totalCostUsd: 0.23,
+//   durationMs: 12500,
+//   toolCalls: 8,
+//   filesChanged: 3
+// }
+```
+
+**Includes:**
+- Token usage (input + output)
+- Cost in USD
+- Wall clock duration
+- Tool call count
+- File change count
+
+### 7. TODO Status
+```typescript
+result.todos.forEach(todo => {
+  console.log(todo.text); // TODO item text
+  console.log(todo.status); // 'pending', 'in_progress', 'completed'
+});
+
+// Matchers use this automatically
+expect(result).toCompleteAllTodos();
+```
+
+**Includes:**
+- All TODO items from agent execution
+- Final status of each item
+
+## How It Works
+
+### Hook-Based Capture
+
+Vibe-check uses **Claude Code hooks** to capture execution data in real-time:
+
+```
+Agent Execution Flow:
+┌─────────────────────────────────────────────────────────┐
+│ 1. runAgent() starts                                    │
+│    ├─ Start hook capture (non-blocking file writes)    │
+│    ├─ Execute agent via SDK                             │
+│    └─ Hooks fire during execution:                      │
+│        ├─ PreToolUse → Write to temp file               │
+│        ├─ PostToolUse → Write to temp file              │
+│        ├─ Notification → Write to temp file             │
+│        └─ TodoUpdate → Write to temp file               │
+└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│ 2. Agent completes                                      │
+│    ├─ Stop hook capture                                 │
+│    ├─ Read all hook temp files                          │
+│    ├─ Correlate PreToolUse + PostToolUse → ToolCall     │
+│    ├─ Capture git state (before/after comparison)       │
+│    ├─ Read file content (before/after)                  │
+│    └─ Store everything in RunBundle on disk             │
+└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│ 3. Return RunResult                                     │
+│    ├─ Lazy accessors to bundle data                     │
+│    └─ Test code gets fully-populated context            │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Non-Blocking Hook Capture
+
+**During execution:**
+- Hooks write JSON to small temp files (non-blocking)
+- Agent execution is not slowed by capture overhead
+- Hook failures don't fail the test (graceful degradation)
+
+**After execution:**
+- Framework reads all temp files
+- Correlates events (PreToolUse + PostToolUse = ToolCall)
+- Extracts structured data
+- Persists to RunBundle
+
+### Git Integration
+
+**Before execution:**
+```bash
+git rev-parse HEAD                    # Capture commit hash
+git diff --quiet || echo "dirty"      # Check working tree status
+```
+
+**After execution:**
+```bash
+git rev-parse HEAD                    # New commit hash (if any)
+git diff --name-status HEAD~1 HEAD    # Changed files
+git diff HEAD~1 HEAD -- <file>        # Full diff per file
+```
+
+**File content capture:**
+```bash
+git show HEAD~1:<file>  # Before content
+git show HEAD:<file>    # After content (or read from working tree)
+```
+
+### Event Correlation
+
+**Tool calls** require correlating two separate hook events:
+
+```typescript
+// PreToolUse hook fires
+{
+  "type": "PreToolUse",
+  "ts": 1697000001000,
+  "toolName": "Edit",
+  "input": { "file_path": "src/auth.ts", ... }
+}
+
+// PostToolUse hook fires (later)
+{
+  "type": "PostToolUse",
+  "ts": 1697000001250,
+  "toolName": "Edit",
+  "output": { "success": true }
+}
+
+// Framework correlates by timestamp/sequence → ToolCall
+{
+  "name": "Edit",
+  "input": { "file_path": "src/auth.ts", ... },
+  "output": { "success": true },
+  "ok": true,
+  "startedAt": 1697000001000,
+  "endedAt": 1697000001250,
+  "durationMs": 250
+}
+```
+
+## What You Don't Have to Do
+
+### ❌ Manual Artifact Collection
+```typescript
+// DON'T: Manual artifact management (old way)
+const result = await runAgent({ agent, prompt });
+const gitDiff = await runBashCommand('git diff');
+const files = await readChangedFiles();
+const metrics = await calculateMetrics();
+```
+
+### ✅ Automatic Capture
+```typescript
+// DO: Everything captured automatically
+const result = await runAgent({ agent, prompt });
+
+// All data available immediately
+result.files.changed();
+result.git.diffSummary();
+result.metrics.totalCostUsd;
+```
+
+### ❌ Manual Hook Setup
+```typescript
+// DON'T: Set up hooks manually (old way)
+const hooks = setupClaudeHooks();
+hooks.on('PreToolUse', data => { /* save */ });
+hooks.on('PostToolUse', data => { /* correlate */ });
+```
+
+### ✅ Zero Configuration
+```typescript
+// DO: Hooks configured automatically
+const result = await runAgent({ agent, prompt });
+// Hooks captured, correlated, and populated in result
+```
+
+### ❌ Cost Tracking
+```typescript
+// DON'T: Track costs manually (old way)
+let totalTokens = 0;
+sdk.on('usage', usage => {
+  totalTokens += usage.input_tokens + usage.output_tokens;
+});
+```
+
+### ✅ Automatic Metrics
+```typescript
+// DO: Metrics calculated automatically
+const result = await runAgent({ agent, prompt });
+console.log(result.metrics.totalTokens);
+console.log(result.metrics.totalCostUsd);
+```
+
+## Benefits
+
+### 1. Zero Boilerplate
+No artifact collection code cluttering your tests. Focus on the actual test logic.
+
+### 2. Consistent Data
+Every test captures the same data in the same format. No manual inconsistencies.
+
+### 3. Rich Debugging
+Full execution context available for every test failure. No guessing what happened.
+
+### 4. Powerful Assertions
+Matchers can access captured data for sophisticated checks:
+```typescript
+expect(result).toHaveChangedFiles(['src/**']);
+expect(result).toUseOnlyTools(['Read', 'Edit']);
+expect(result).toCompleteAllTodos();
+```
+
+### 5. HTML Reports
+Reporters access captured data to generate rich visualizations:
+- Conversation transcripts
+- Tool call timelines
+- File diffs with syntax highlighting
+- Cost breakdowns
+
+### 6. Cumulative State
+Multiple `runAgent()` calls accumulate state automatically:
+```typescript
+vibeTest('multi-step', async ({ runAgent, files, tools }) => {
+  await runAgent({ agent: a1, prompt: 'step 1' });
+  await runAgent({ agent: a2, prompt: 'step 2' });
+
+  // Context accumulated automatically
+  files.changed(); // Files from both runs
+  tools.all(); // Tools from both runs
+});
+```
+
+## Graceful Degradation
+
+**Hook failures don't fail tests.** If hook capture fails:
+- Agent execution continues normally
+- `RunResult` still returns (with partial data)
+- Warnings logged to stderr
+- `hookCaptureStatus` field indicates missing data
+
+```typescript
+const result = await runAgent({ agent, prompt });
+
+// Check if all data was captured
+if (!result.hookCaptureStatus.complete) {
+  console.warn('Some hooks failed:', result.hookCaptureStatus.warnings);
+}
+
+// Matcher for complete hook data
+expect(result).toHaveCompleteHookData();
+```
+
+See [Graceful Degradation](/explanation/design/graceful-degradation) for details.
+
+## See Also
+
+- [Lazy Loading](/explanation/concepts/lazy-loading) - Memory-efficient file access
+- [Run Bundle](/explanation/architecture/run-bundle) - On-disk storage structure
+- [Hook Integration](/explanation/architecture/hook-integration) - Technical implementation
+- [Context Manager](/explanation/architecture/context-manager) - Capture orchestration

@@ -1,0 +1,118 @@
+---
+title: Getting Started
+description: Learn how to install and use vibe-check in your projects
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Welcome to vibe-check! This tutorial section will guide you through installing, configuring, and using vibe-check to test and automate your Claude Code agents.
+
+## Quick Navigation
+
+<CardGrid>
+  <Card title="Installation" icon="rocket">
+    [Install vibe-check](/getting-started/installation/) and configure your environment in minutes.
+  </Card>
+
+  <Card title="Quickstart" icon="star">
+    [5-minute introduction](/getting-started/quickstart/) to core concepts and basic usage.
+  </Card>
+
+  <Card title="Your First Test" icon="puzzle">
+    [Write your first test](/getting-started/first-test/) with step-by-step guidance and best practices.
+  </Card>
+
+  <Card title="Your First Automation" icon="setting">
+    [Build multi-stage workflows](/getting-started/first-automation/) and orchestrate agent pipelines.
+  </Card>
+
+  <Card title="Your First Evaluation" icon="approve-check">
+    [Benchmark agents and models](/getting-started/first-evaluation/) with matrix testing and LLM judges.
+  </Card>
+</CardGrid>
+
+## Learning Path
+
+### 1. Installation & Setup
+
+Start by [installing vibe-check](/getting-started/installation/) in your project. This guide covers:
+
+- Package installation with npm/yarn/bun
+- Basic configuration
+- Environment setup for Claude Code
+- Verifying your installation
+
+**Time:** 5 minutes
+**Prerequisites:** Node.js 18+, Claude Code CLI
+
+---
+
+### 2. Core Concepts
+
+The [Quickstart guide](/getting-started/quickstart/) introduces you to:
+
+- The dual API surface (`vibeTest` vs `vibeWorkflow`)
+- Agent definitions and execution
+- Auto-captured context (files, tools, git state)
+- Basic assertions and matchers
+
+**Time:** 5 minutes
+**Prerequisites:** Installation complete
+
+---
+
+### 3. Testing Basics
+
+Follow [Your First Test](/getting-started/first-test/) to learn:
+
+- Writing assertions with custom matchers
+- Inspecting file changes and tool calls
+- Using LLM judges for quality evaluation
+- Debugging failed tests with captured context
+
+**Time:** 15 minutes
+**Prerequisites:** Quickstart complete
+
+---
+
+### 4. Automation Workflows
+
+Learn to [build workflows](/getting-started/first-automation/) that:
+
+- Chain multiple agent stages together
+- Pass cumulative context between stages
+- Implement retry and loop patterns
+- Handle errors gracefully
+
+**Time:** 20 minutes
+**Prerequisites:** Testing basics complete
+
+---
+
+### 5. Model Evaluation
+
+Discover how to [evaluate and benchmark](/getting-started/first-evaluation/) agents:
+
+- Matrix testing across models and configurations
+- LLM-based quality evaluation with rubrics
+- Cost analysis and optimization
+- Comparing agent performance
+
+**Time:** 20 minutes
+**Prerequisites:** Testing and automation basics complete
+
+---
+
+## What's Next?
+
+After completing the tutorials, explore:
+
+- **[How-To Guides](/guides/)** - Task-oriented guides for specific use cases
+- **[API Reference](/api/)** - Complete API documentation for all functions and types
+- **[Explanation](/explanation/)** - Deep dives into architecture and design decisions
+
+## Getting Help
+
+- **Documentation issues?** [Report them on GitHub](https://github.com/dao/vibe-check/issues)
+- **Questions?** Check the [API Reference](/api/) or [Explanation](/explanation/) sections
+- **Feature requests?** [Open a discussion](https://github.com/dao/vibe-check/discussions)

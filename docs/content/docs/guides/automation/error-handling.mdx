@@ -1,0 +1,681 @@
+---
+title: Error Handling
+description: Build resilient automation workflows that gracefully handle failures and recover from errors
+sidebar:
+  order: 3
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers error handling strategies for automation workflows. You'll learn how to build resilient pipelines that gracefully handle failures, implement fallback strategies, and recover from errors.
+
+<Aside type="tip">
+  **Prerequisites:** This guide assumes you understand workflow basics. If you're new to workflows, start with [Building Workflows →](/guides/automation/building-workflows/).
+</Aside>
+
+## Workflows vs Tests: Different Error Handling
+
+Understanding how workflows handle errors differently than tests is crucial:
+
+| Aspect | vibeTest | vibeWorkflow |
+|--------|----------|--------------|
+| **Error Mode** | Fail fast (throw immediately) | Log and continue |
+| **Assertions** | Uses `expect()` | No assertions (manual checks) |
+| **Purpose** | Validation (pass/fail) | Automation (resilience) |
+| **Recovery** | N/A (test fails) | Can retry, fallback, or adapt |
+
+<Aside type="note">
+  Workflows prioritize **resilience** over **validation**. Errors don't automatically fail the workflow - you decide how to handle them.
+</Aside>
+
+---
+
+## Error Detection Strategies
+
+### 1. Log-Based Detection
+
+Check for errors in agent logs:
+
+```typescript
+import { vibeWorkflow } from '@dao/vibe-check';
+
+vibeWorkflow('log-based error check', async (wf) => {
+  const result = await wf.stage('build', {
+    prompt: '/build'
+  });
+
+  // Check for error keywords in logs
+  const hasErrors = result.logs.some(log =>
+    log.toLowerCase().includes('error') ||
+    log.toLowerCase().includes('failed')
+  );
+
+  if (hasErrors) {
+    console.error('Build had errors:');
+    result.logs
+      .filter(log => log.toLowerCase().includes('error'))
+      .forEach(log => console.error('  -', log));
+
+    // Handle error (retry, fallback, or exit)
+    return;
+  }
+
+  console.log('Build succeeded');
+});
+```
+
+### 2. File-Based Detection
+
+Check if expected files were created:
+
+```typescript
+vibeWorkflow('file-based validation', async (wf) => {
+  const result = await wf.stage('generate report', {
+    prompt: '/generate-report'
+  });
+
+  // Check for expected output
+  const reportFile = result.files.get('dist/report.pdf');
+
+  if (!reportFile) {
+    console.error('Report generation failed: report.pdf not found');
+    console.error('Files changed:', result.files.changed().map(f => f.path));
+    return;
+  }
+
+  console.log('Report generated successfully');
+});
+```
+
+### 3. Tool-Based Detection
+
+Check tool call results:
+
+```typescript
+vibeWorkflow('tool-based validation', async (wf) => {
+  const result = await wf.stage('run tests', {
+    prompt: '/test'
+  });
+
+  // Check Bash tool calls for test results
+  const testRuns = result.tools.filter('Bash').filter(t =>
+    t.input?.includes('test') || t.input?.includes('vitest')
+  );
+
+  const allPassed = testRuns.every(t =>
+    t.result?.includes('PASS') ||
+    t.result?.includes('✓') ||
+    !t.result?.includes('FAIL')
+  );
+
+  if (!allPassed) {
+    console.error('Tests failed');
+    testRuns
+      .filter(t => t.result?.includes('FAIL'))
+      .forEach(t => console.error('Failed test:', t.input));
+    return;
+  }
+
+  console.log('All tests passed');
+});
+```
+
+### 4. Metrics-Based Detection
+
+Monitor cost, token usage, or other metrics:
+
+```typescript
+vibeWorkflow('metrics validation', async (wf) => {
+  const result = await wf.stage('optimize code', {
+    prompt: '/optimize'
+  });
+
+  // Check if operation was too expensive
+  if (result.metrics.cost.total > 1.0) {
+    console.warn(`Operation cost $${result.metrics.cost.total.toFixed(2)} (budget: $1.00)`);
+  }
+
+  // Check token usage
+  if (result.metrics.tokens.total > 100_000) {
+    console.warn('High token usage:', result.metrics.tokens.total);
+  }
+
+  console.log('Optimization complete');
+});
+```
+
+---
+
+## Error Recovery Patterns
+
+### 1. Retry with Backoff
+
+Retry failed operations with increasing delays:
+
+```typescript
+vibeWorkflow('retry deployment', async (wf) => {
+  const maxAttempts = 3;
+  let attempt = 0;
+  let success = false;
+
+  while (!success && attempt < maxAttempts) {
+    attempt++;
+
+    const result = await wf.stage(`deploy attempt ${attempt}`, {
+      prompt: '/deploy'
+    });
+
+    // Check for success
+    success = !result.logs.some(log => log.includes('ERROR'));
+
+    if (!success && attempt < maxAttempts) {
+      const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+      console.log(`Attempt ${attempt} failed, retrying in ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  if (success) {
+    console.log(`Deployment succeeded on attempt ${attempt}`);
+  } else {
+    console.error(`Deployment failed after ${maxAttempts} attempts`);
+    throw new Error('Deployment failed');
+  }
+});
+```
+
+<Aside type="tip">
+  For retry patterns, consider using the [`until()` helper →](/guides/automation/loop-patterns/) for cleaner code.
+</Aside>
+
+### 2. Fallback Strategy
+
+Try alternative approaches when the primary approach fails:
+
+```typescript
+vibeWorkflow('fallback deployment', async (wf) => {
+  // Try primary deployment method
+  const primaryDeploy = await wf.stage('deploy via CI/CD', {
+    prompt: '/deploy --method=cicd'
+  });
+
+  const primarySuccess = !primaryDeploy.logs.some(log => log.includes('ERROR'));
+
+  if (primarySuccess) {
+    console.log('Deployed via CI/CD');
+    return;
+  }
+
+  console.warn('CI/CD deployment failed, trying manual deployment');
+
+  // Fallback to manual deployment
+  const fallbackDeploy = await wf.stage('deploy manually', {
+    prompt: '/deploy --method=manual'
+  });
+
+  const fallbackSuccess = !fallbackDeploy.logs.some(log => log.includes('ERROR'));
+
+  if (fallbackSuccess) {
+    console.log('Deployed manually (fallback)');
+  } else {
+    throw new Error('Both deployment methods failed');
+  }
+});
+```
+
+### 3. Rollback on Failure
+
+Automatically rollback changes when an error occurs:
+
+```typescript
+vibeWorkflow('safe deployment with rollback', async (wf) => {
+  // Create backup before deployment
+  const backup = await wf.stage('create backup', {
+    prompt: '/backup --create'
+  });
+
+  const backupFile = backup.files.get('backup.tar.gz');
+  if (!backupFile) {
+    throw new Error('Failed to create backup');
+  }
+
+  try {
+    // Attempt deployment
+    const deploy = await wf.stage('deploy', {
+      prompt: '/deploy'
+    });
+
+    const success = !deploy.logs.some(log => log.includes('ERROR'));
+
+    if (!success) {
+      throw new Error('Deployment failed');
+    }
+
+    console.log('Deployment succeeded');
+
+  } catch (error) {
+    console.error('Deployment failed, rolling back...');
+
+    // Rollback to backup
+    await wf.stage('rollback', {
+      prompt: `/restore --from=${backup.bundleDir}/backup.tar.gz`
+    });
+
+    console.log('Rollback complete');
+    throw error;  // Re-throw to signal failure
+  }
+});
+```
+
+### 4. Partial Success Handling
+
+Continue workflow even if some stages fail:
+
+```typescript
+vibeWorkflow('partial success pipeline', async (wf) => {
+  const results = {
+    buildSuccess: false,
+    testSuccess: false,
+    lintSuccess: false
+  };
+
+  // Build stage (required)
+  const build = await wf.stage('build', { prompt: '/build' });
+  results.buildSuccess = !build.logs.some(log => log.includes('ERROR'));
+
+  if (!results.buildSuccess) {
+    console.error('Build failed, cannot continue');
+    throw new Error('Build failed');
+  }
+
+  // Test stage (optional)
+  try {
+    const test = await wf.stage('test', { prompt: '/test' });
+    results.testSuccess = !test.logs.some(log => log.includes('FAIL'));
+  } catch (error) {
+    console.warn('Tests failed, but continuing...');
+  }
+
+  // Lint stage (optional)
+  try {
+    const lint = await wf.stage('lint', { prompt: '/lint' });
+    results.lintSuccess = !lint.logs.some(log => log.includes('ERROR'));
+  } catch (error) {
+    console.warn('Linting failed, but continuing...');
+  }
+
+  // Summary
+  console.log('Pipeline results:');
+  console.log('  Build:', results.buildSuccess ? '✓' : '✗');
+  console.log('  Tests:', results.testSuccess ? '✓' : '✗');
+  console.log('  Lint:', results.lintSuccess ? '✓' : '✗');
+
+  if (!results.testSuccess || !results.lintSuccess) {
+    console.warn('Pipeline completed with warnings');
+  }
+});
+```
+
+---
+
+## Error Isolation
+
+### Try-Catch Blocks
+
+Isolate errors to specific stages:
+
+```typescript
+vibeWorkflow('isolated errors', async (wf) => {
+  let deploymentReady = false;
+
+  // Stage 1: Build (critical)
+  try {
+    const build = await wf.stage('build', { prompt: '/build' });
+    deploymentReady = build.files.filter('dist/**/*').length > 0;
+  } catch (error) {
+    console.error('Build failed:', error);
+    throw error;  // Stop workflow
+  }
+
+  // Stage 2: Optimize (optional)
+  try {
+    await wf.stage('optimize assets', { prompt: '/optimize' });
+    console.log('Assets optimized');
+  } catch (error) {
+    console.warn('Optimization failed (non-critical):', error);
+    // Continue workflow
+  }
+
+  // Stage 3: Deploy (critical, only if build succeeded)
+  if (deploymentReady) {
+    try {
+      await wf.stage('deploy', { prompt: '/deploy' });
+      console.log('Deployment successful');
+    } catch (error) {
+      console.error('Deployment failed:', error);
+      throw error;  // Stop workflow
+    }
+  }
+});
+```
+
+### Stage-Level Error Handling
+
+Handle errors at the stage level:
+
+```typescript
+vibeWorkflow('stage-level error handling', async (wf) => {
+  const stages = [
+    { name: 'validate', critical: true },
+    { name: 'build', critical: true },
+    { name: 'test', critical: false },
+    { name: 'deploy', critical: true }
+  ];
+
+  for (const stage of stages) {
+    try {
+      const result = await wf.stage(stage.name, {
+        prompt: `/${stage.name}`
+      });
+
+      const success = !result.logs.some(log => log.includes('ERROR'));
+
+      if (!success && stage.critical) {
+        throw new Error(`Critical stage '${stage.name}' failed`);
+      }
+
+      if (!success) {
+        console.warn(`Non-critical stage '${stage.name}' failed`);
+      }
+
+    } catch (error) {
+      if (stage.critical) {
+        console.error(`Critical error in ${stage.name}:`, error);
+        throw error;
+      }
+      console.warn(`Skipping non-critical stage ${stage.name}:`, error);
+    }
+  }
+
+  console.log('Pipeline complete');
+});
+```
+
+---
+
+## Graceful Degradation
+
+### Feature Flags
+
+Disable optional features on error:
+
+```typescript
+vibeWorkflow('feature flags', async (wf) => {
+  const features = {
+    analytics: true,
+    monitoring: true,
+    cdn: true
+  };
+
+  // Core deployment (always runs)
+  await wf.stage('deploy core', { prompt: '/deploy --core' });
+
+  // Optional: Analytics
+  if (features.analytics) {
+    try {
+      await wf.stage('enable analytics', { prompt: '/analytics enable' });
+      console.log('Analytics enabled');
+    } catch (error) {
+      console.warn('Analytics failed, disabling:', error);
+      features.analytics = false;
+    }
+  }
+
+  // Optional: Monitoring
+  if (features.monitoring) {
+    try {
+      await wf.stage('enable monitoring', { prompt: '/monitoring enable' });
+      console.log('Monitoring enabled');
+    } catch (error) {
+      console.warn('Monitoring failed, disabling:', error);
+      features.monitoring = false;
+    }
+  }
+
+  console.log('Deployment complete with features:', features);
+});
+```
+
+### Reduced Functionality
+
+Provide minimal functionality when full functionality fails:
+
+```typescript
+vibeWorkflow('reduced functionality', async (wf) => {
+  let fullFunctionality = true;
+
+  // Try full build with optimizations
+  try {
+    await wf.stage('full build', {
+      prompt: '/build --optimize --minify --tree-shake'
+    });
+    console.log('Full build complete');
+
+  } catch (error) {
+    console.warn('Full build failed, trying minimal build...');
+    fullFunctionality = false;
+
+    // Fallback to minimal build
+    await wf.stage('minimal build', {
+      prompt: '/build --no-optimize'
+    });
+    console.log('Minimal build complete');
+  }
+
+  // Deploy with appropriate configuration
+  await wf.stage('deploy', {
+    prompt: fullFunctionality
+      ? '/deploy --production'
+      : '/deploy --dev-mode'
+  });
+
+  if (!fullFunctionality) {
+    console.warn('Deployed with reduced functionality');
+  }
+});
+```
+
+---
+
+## Error Reporting
+
+### Detailed Error Logs
+
+Collect and report detailed error information:
+
+```typescript
+vibeWorkflow('detailed error logging', async (wf) => {
+  const errors: Array<{
+    stage: string;
+    error: string;
+    logs: string[];
+    files: string[];
+  }> = [];
+
+  const stages = ['build', 'test', 'deploy'];
+
+  for (const stageName of stages) {
+    try {
+      const result = await wf.stage(stageName, {
+        prompt: `/${stageName}`
+      });
+
+      const hasErrors = result.logs.some(log => log.includes('ERROR'));
+
+      if (hasErrors) {
+        errors.push({
+          stage: stageName,
+          error: 'Stage completed with errors',
+          logs: result.logs.filter(log => log.includes('ERROR')),
+          files: result.files.changed().map(f => f.path)
+        });
+      }
+
+    } catch (error) {
+      errors.push({
+        stage: stageName,
+        error: error instanceof Error ? error.message : String(error),
+        logs: [],
+        files: []
+      });
+    }
+  }
+
+  // Report all errors
+  if (errors.length > 0) {
+    console.error(`\n=== Pipeline Errors (${errors.length}) ===\n`);
+
+    for (const err of errors) {
+      console.error(`Stage: ${err.stage}`);
+      console.error(`Error: ${err.error}`);
+
+      if (err.logs.length > 0) {
+        console.error('Logs:');
+        err.logs.forEach(log => console.error(`  ${log}`));
+      }
+
+      if (err.files.length > 0) {
+        console.error('Files:', err.files.join(', '));
+      }
+
+      console.error('');
+    }
+
+    throw new Error(`Pipeline failed with ${errors.length} errors`);
+  }
+
+  console.log('Pipeline completed successfully');
+});
+```
+
+### Notification Integration
+
+Send notifications on error:
+
+```typescript
+vibeWorkflow('error notifications', async (wf) => {
+  try {
+    await wf.stage('deploy', { prompt: '/deploy' });
+    console.log('Deployment successful');
+
+    // Send success notification
+    await wf.stage('notify success', {
+      prompt: '/notify --status=success --channel=deployments'
+    });
+
+  } catch (error) {
+    console.error('Deployment failed:', error);
+
+    // Send failure notification
+    await wf.stage('notify failure', {
+      prompt: `/notify --status=failure --error="${error.message}" --channel=alerts`
+    });
+
+    throw error;
+  }
+});
+```
+
+---
+
+## Best Practices
+
+### 1. Fail Fast for Critical Errors
+
+Don't continue if critical stages fail:
+
+```typescript
+// ✅ Good: Fail fast
+const build = await wf.stage('build', { prompt: '/build' });
+
+if (!build.files.get('dist/index.js')) {
+  throw new Error('Build failed: missing output');
+}
+
+// ❌ Bad: Continue despite critical failure
+const build = await wf.stage('build', { prompt: '/build' });
+await wf.stage('deploy', { prompt: '/deploy' });  // Might fail!
+```
+
+### 2. Be Lenient for Non-Critical Errors
+
+Allow optional stages to fail:
+
+```typescript
+// ✅ Good: Optional stage can fail
+try {
+  await wf.stage('optimize', { prompt: '/optimize' });
+} catch (error) {
+  console.warn('Optimization failed (non-critical)');
+}
+
+await wf.stage('deploy', { prompt: '/deploy' });
+```
+
+### 3. Provide Clear Error Messages
+
+```typescript
+// ✅ Good: Descriptive error
+if (!result.files.get('dist/bundle.js')) {
+  throw new Error(
+    'Build failed: dist/bundle.js not found. ' +
+    `Files created: ${result.files.changed().map(f => f.path).join(', ')}`
+  );
+}
+
+// ❌ Bad: Vague error
+if (!result.files.get('dist/bundle.js')) {
+  throw new Error('Build failed');
+}
+```
+
+### 4. Clean Up on Errors
+
+Always clean up resources:
+
+```typescript
+vibeWorkflow('cleanup on error', async (wf) => {
+  const tempFiles: string[] = [];
+
+  try {
+    const prep = await wf.stage('prepare', { prompt: '/prepare' });
+    tempFiles.push(...prep.files.filter('temp/**/*').map(f => f.path));
+
+    await wf.stage('process', { prompt: '/process' });
+    await wf.stage('deploy', { prompt: '/deploy' });
+
+  } finally {
+    // Always clean up, even if error occurred
+    if (tempFiles.length > 0) {
+      await wf.stage('cleanup', {
+        prompt: `/cleanup ${tempFiles.join(' ')}`
+      });
+    }
+  }
+});
+```
+
+---
+
+## What's Next?
+
+Now that you understand error handling, explore:
+
+- **[Loop Patterns →](/guides/automation/loop-patterns/)** - Implement retry logic with loops
+- **[Building Workflows →](/guides/automation/building-workflows/)** - Workflow fundamentals
+- **[Using Judge →](/guides/evaluation/using-judge/)** - Evaluate results quality
+
+Or dive into the API reference:
+
+- **[WorkflowContext →](/api/types/workflow-context/)** - Complete API documentation
+- **[RunResult →](/api/types/run-result/)** - Access logs and files for error detection

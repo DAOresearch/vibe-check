@@ -1,0 +1,424 @@
+---
+title: AgentExecution
+description: Thenable execution handle returned by runAgent() and stage() with reactive watch capabilities
+sidebar:
+  order: 3
+---
+
+`AgentExecution` is a thenable class returned by `runAgent()` and `stage()`. It provides reactive watch capabilities for assertions during agent execution, enabling fail-fast testing.
+
+## Class Definition
+
+```typescript
+class AgentExecution {
+  watch(fn: WatcherFn): this;
+  then<T, U>(
+    onFulfilled?: (value: RunResult) => T | Promise<T>,
+    onRejected?: (reason: unknown) => U | Promise<U>
+  ): Promise<T | U>;
+  catch<U>(onRejected?: (reason: unknown) => U | Promise<U>): Promise<RunResult | U>;
+  finally(onFinally?: () => void): Promise<RunResult>;
+  abort(reason?: string): void;
+}
+```
+
+**Important:** `AgentExecution` is a thenable object (implements `then/catch/finally`) but **NOT** a Promise subclass. It's fully awaitable and works with `Promise.all/race`, but `instanceof Promise` returns `false`.
+
+## Methods
+
+### watch
+
+```typescript
+watch(fn: WatcherFn): this
+```
+
+Register a watcher function that runs during execution for reactive assertions.
+
+**Parameters:**
+- `fn` - Watcher function receiving [`PartialRunResult`](/api/types/partial-result/)
+
+**Returns:**
+- `this` - For method chaining
+
+**When Watchers Run:**
+Watchers are invoked after each significant hook event:
+- `PostToolUse` - After each tool completes
+- `TodoUpdate` - When TODO status changes
+- `Notification` - When agent sends notifications
+
+**Execution Guarantees:**
+- Watchers execute **sequentially** in registration order (not parallel)
+- Each watcher completes before the next starts
+- If any watcher throws, execution aborts immediately
+- No race conditions: only one watcher runs at a time
+
+**Example - Fail-Fast on File Violations:**
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('restrict file changes', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/refactor authentication'
+  });
+
+  // Abort if non-auth files are modified
+  execution.watch(({ files }) => {
+    const authFiles = files.changed().filter(f =>
+      f.path.startsWith('src/auth/')
+    );
+    const otherFiles = files.changed().filter(f =>
+      !f.path.startsWith('src/auth/')
+    );
+
+    if (otherFiles.length > 0) {
+      expect.fail(`Modified non-auth files: ${otherFiles.map(f => f.path)}`);
+    }
+  });
+
+  const result = await execution;
+  // Only reaches here if watcher never threw
+});
+```
+
+**Example - Multiple Watchers (Sequential):**
+
+```typescript
+vibeTest('multiple watchers', async ({ runAgent, expect }) => {
+  const execution = runAgent({ prompt: '/task' });
+
+  execution
+    .watch(({ tools }) => {
+      // Watcher 1: Limit tool failures
+      expect(tools.failed().length).toBeLessThan(3);
+    })
+    .watch(({ metrics }) => {
+      // Watcher 2: runs only if watcher 1 passes
+      expect(metrics.totalCostUsd).toBeLessThan(5.0);
+    })
+    .watch(({ todos }) => {
+      // Watcher 3: runs only if watchers 1 and 2 pass
+      const completed = todos.filter(t => t.status === 'completed').length;
+      expect(completed).toBeGreaterThan(0);
+    });
+
+  await execution;
+});
+```
+
+**Example - Cost Budget Enforcement:**
+
+```typescript
+vibeTest('enforce cost budget', async ({ runAgent, expect }) => {
+  const execution = runAgent({ prompt: '/expensive-task' });
+
+  execution.watch(({ metrics }) => {
+    if (metrics.totalCostUsd && metrics.totalCostUsd > 1.0) {
+      expect.fail(`Cost exceeded budget: $${metrics.totalCostUsd.toFixed(4)}`);
+    }
+  });
+
+  await execution; // Aborts if cost > $1.00
+});
+```
+
+**See Also:**
+- [Reactive Watchers →](/guides/testing/reactive-watchers/)
+- [PartialRunResult →](/api/types/partial-result/)
+
+---
+
+### then
+
+```typescript
+then<T, U>(
+  onFulfilled?: (value: RunResult) => T | Promise<T>,
+  onRejected?: (reason: unknown) => U | Promise<U>
+): Promise<T | U>
+```
+
+Make `AgentExecution` awaitable (thenable interface).
+
+**Parameters:**
+- `onFulfilled` - Called when execution succeeds
+- `onRejected` - Called when execution fails
+
+**Returns:**
+- `Promise<T | U>` - Promise resolving to fulfillment or rejection value
+
+**Usage:**
+
+```typescript
+// Await directly
+const result = await runAgent({ prompt: '/task' });
+
+// Use then/catch
+runAgent({ prompt: '/task' })
+  .then(result => console.log('Success:', result.files.stats()))
+  .catch(error => console.error('Failed:', error));
+
+// Promise.all
+const [result1, result2] = await Promise.all([
+  runAgent({ prompt: '/task1' }),
+  runAgent({ prompt: '/task2' })
+]);
+
+// Promise.race
+const result = await Promise.race([
+  runAgent({ prompt: '/task' }),
+  new Promise((_, reject) =>
+    setTimeout(() => reject('Timeout'), 60000)
+  )
+]);
+```
+
+---
+
+### catch
+
+```typescript
+catch<U>(
+  onRejected?: (reason: unknown) => U | Promise<U>
+): Promise<RunResult | U>
+```
+
+Handle errors from execution or watchers.
+
+**Parameters:**
+- `onRejected` - Error handler function
+
+**Returns:**
+- `Promise<RunResult | U>` - Promise resolving to result or error handler return value
+
+**Example:**
+
+```typescript
+vibeTest('handle execution errors', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '/task' })
+    .catch(error => {
+      console.error('Execution failed:', error);
+      // Return fallback result or re-throw
+      throw error;
+    });
+});
+```
+
+---
+
+### finally
+
+```typescript
+finally(onFinally?: () => void): Promise<RunResult>
+```
+
+Cleanup handler that runs whether execution succeeds or fails.
+
+**Parameters:**
+- `onFinally` - Cleanup function
+
+**Returns:**
+- `Promise<RunResult>` - Promise resolving to run result
+
+**Example:**
+
+```typescript
+vibeTest('cleanup example', async ({ runAgent }) => {
+  let resourcesAllocated = false;
+
+  const result = await runAgent({ prompt: '/task' })
+    .finally(() => {
+      // Always cleanup, even if execution fails
+      if (resourcesAllocated) {
+        console.log('Cleaning up resources');
+      }
+    });
+});
+```
+
+---
+
+### abort
+
+```typescript
+abort(reason?: string): void
+```
+
+Manually abort the execution. Use this to cancel long-running agents programmatically.
+
+**Parameters:**
+- `reason` - Optional abort reason (included in rejection error)
+
+**Example - Timeout Implementation:**
+
+```typescript
+vibeTest('custom timeout', async ({ runAgent }) => {
+  const execution = runAgent({ prompt: '/long-task' });
+
+  // Abort after 60 seconds
+  setTimeout(() => {
+    execution.abort('Timeout after 60s');
+  }, 60_000);
+
+  try {
+    await execution;
+  } catch (error) {
+    console.error('Aborted:', error); // "Timeout after 60s"
+  }
+});
+```
+
+**Example - User Cancellation:**
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('cancellable task', async ({ runAgent }) => {
+  const execution = runAgent({ prompt: '/task' });
+
+  // Simulate user clicking "Cancel" button
+  process.on('SIGINT', () => {
+    execution.abort('User cancelled');
+  });
+
+  await execution;
+});
+```
+
+---
+
+## WatcherFn Type
+
+```typescript
+type WatcherFn = (ctx: PartialRunResult) => void | Promise<void>;
+```
+
+Watcher function type that receives partial execution state.
+
+**Behavior:**
+- Can be sync or async
+- If it throws, execution aborts immediately
+- Receives [`PartialRunResult`](/api/types/partial-result/) with current state
+
+**Example:**
+
+```typescript
+const watchCost: WatcherFn = ({ metrics }) => {
+  if (metrics.totalCostUsd && metrics.totalCostUsd > 1.0) {
+    throw new Error(`Cost exceeded: $${metrics.totalCostUsd}`);
+  }
+};
+
+const watchFiles: WatcherFn = async ({ files }) => {
+  const changed = files.changed();
+  if (changed.length > 50) {
+    throw new Error(`Too many files changed: ${changed.length}`);
+  }
+};
+```
+
+---
+
+## Thenable vs Promise
+
+`AgentExecution` is **thenable** but **not a Promise subclass**.
+
+**What Works:**
+```typescript
+// ✅ Awaiting
+const result = await execution;
+
+// ✅ Promise.all
+await Promise.all([execution1, execution2]);
+
+// ✅ Promise.race
+await Promise.race([execution, timeout]);
+
+// ✅ then/catch/finally
+execution.then(...).catch(...).finally(...);
+```
+
+**What Doesn't Work:**
+```typescript
+// ❌ instanceof Promise
+execution instanceof Promise; // false
+
+// ❌ Promise-only methods
+execution.any(...); // Error: not a method
+```
+
+**Why Not a Promise Subclass?**
+
+`AgentExecution` needs custom behavior:
+- `watch()` method for reactive assertions
+- `abort()` method for cancellation
+- Avoid prototype pollution
+
+Subclassing Promise would complicate the implementation and limit flexibility.
+
+---
+
+## Complete Example
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('complete agent execution example', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/implement user authentication'
+  });
+
+  // Reactive assertions
+  execution
+    .watch(({ files }) => {
+      // Only allow auth-related files
+      const nonAuthFiles = files.changed().filter(f =>
+        !f.path.includes('auth')
+      );
+      if (nonAuthFiles.length > 0) {
+        expect.fail('Modified non-auth files');
+      }
+    })
+    .watch(({ metrics }) => {
+      // Enforce cost budget
+      if (metrics.totalCostUsd && metrics.totalCostUsd > 0.50) {
+        expect.fail('Cost exceeded $0.50');
+      }
+    })
+    .watch(({ todos }) => {
+      // Track progress
+      const completed = todos.filter(t => t.status === 'completed').length;
+      console.log(`${completed} tasks completed`);
+    });
+
+  // Set timeout
+  const timeout = setTimeout(() => {
+    execution.abort('Timeout after 5 minutes');
+  }, 300_000);
+
+  try {
+    // Await result
+    const result = await execution;
+
+    // Standard assertions after execution
+    expect(result.files).toHaveChangedFiles(['src/auth/**']);
+    expect(result).toCompleteAllTodos();
+
+  } catch (error) {
+    console.error('Execution failed:', error);
+    throw error;
+
+  } finally {
+    // Cleanup
+    clearTimeout(timeout);
+  }
+});
+```
+
+---
+
+## See Also
+
+- [Reactive Watchers Guide →](/guides/testing/reactive-watchers/) - Using watch() for fail-fast testing
+- [PartialRunResult →](/api/types/partial-result/) - Partial state type for watchers
+- [RunResult →](/api/types/run-result/) - Final result type
+- [runAgent() →](/api/core/runagent/) - Function that returns AgentExecution

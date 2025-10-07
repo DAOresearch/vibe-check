@@ -1,0 +1,489 @@
+---
+title: Hook Integration
+description: How vibe-check captures Claude Code hook events in real-time
+sidebar:
+  order: 4
+---
+
+Vibe-check captures execution data through **Claude Code hooks** - event callbacks that fire during agent execution. This page explains the hook integration mechanism, payload structure, and capture implementation.
+
+## Claude Code Hooks Overview
+
+**Claude Code hooks** are shell scripts that execute when specific events occur during agent execution. They receive event data via stdin and can write to files, send analytics, or trigger other actions.
+
+**Hook types available:**
+- `PreToolUse` - Before tool execution
+- `PostToolUse` - After tool execution
+- `Notification` - Agent notifications
+- `Stop` / `SubagentStop` - Execution completion
+- `SessionStart` / `SessionEnd` - Session lifecycle
+
+**Documentation:** https://docs.claude.com/en/docs/claude-code/hooks
+
+## Hook Configuration
+
+### Setup (.claude/settings.json)
+
+```json
+{
+  "hooks": {
+    "PreToolUse": ".claude/hooks/vibe-hook.js",
+    "PostToolUse": ".claude/hooks/vibe-hook.js",
+    "Notification": ".claude/hooks/vibe-hook.js",
+    "Stop": ".claude/hooks/vibe-hook.js",
+    "SubagentStop": ".claude/hooks/vibe-hook.js",
+    "SessionStart": ".claude/hooks/vibe-hook.js",
+    "SessionEnd": ".claude/hooks/vibe-hook.js"
+  }
+}
+```
+
+**Note:** All hooks point to the same script (`vibe-hook.js`). The script detects hook type from payload.
+
+### Hook Script Implementation
+
+```javascript
+#!/usr/bin/env node
+// .claude/hooks/vibe-hook.js
+
+import { readFileSync, appendFileSync } from 'node:fs';
+
+// Read payload from stdin
+const payload = JSON.parse(readFileSync(0, 'utf-8'));
+
+// Get bundle directory from environment
+const bundleDir = process.env.VIBE_BUNDLE_DIR;
+if (!bundleDir) {
+  // Not running in vibe-check context - exit silently
+  process.exit(0);
+}
+
+// Append to hooks.ndjson
+const hookFile = `${bundleDir}/hooks.ndjson`;
+const line = JSON.stringify({
+  ...payload,
+  ts: Date.now(), // Add timestamp
+}) + '\n';
+
+try {
+  appendFileSync(hookFile, line, 'utf-8');
+} catch (err) {
+  // Non-blocking: log to stderr but don't fail
+  console.error(`[vibe-check] Hook write failed: ${err.message}`);
+}
+```
+
+**Key characteristics:**
+- **Non-blocking** - Exits immediately after write
+- **Graceful** - Continues if write fails
+- **Environment-aware** - Only activates when `VIBE_BUNDLE_DIR` is set
+
+## Hook Payload Structure
+
+### Common Fields (All Hooks)
+
+```typescript
+interface BaseHookPayload {
+  hook: 'PreToolUse' | 'PostToolUse' | 'Notification' | 'Stop' | ...;
+  session_id: string;          // Unique session identifier
+  transcript_path?: string;    // Path to conversation transcript
+  cwd?: string;                // Working directory
+  ts?: number;                 // Unix timestamp (ms) - added by hook script
+}
+```
+
+### PreToolUse
+
+```typescript
+interface PreToolUsePayload extends BaseHookPayload {
+  hook: 'PreToolUse';
+  tool_name: string;           // Tool name ('Edit', 'Bash', 'Read', etc.)
+  tool_input: string;          // JSON string of tool parameters
+}
+```
+
+**Example:**
+```json
+{
+  "hook": "PreToolUse",
+  "session_id": "abc123",
+  "cwd": "/Users/foo/repo",
+  "tool_name": "Edit",
+  "tool_input": "{\"file_path\":\"src/auth.ts\",\"old_string\":\"...\",\"new_string\":\"...\"}",
+  "ts": 1697000001000
+}
+```
+
+### PostToolUse
+
+```typescript
+interface PostToolUsePayload extends BaseHookPayload {
+  hook: 'PostToolUse';
+  tool_name: string;           // Tool name (must match PreToolUse)
+  tool_response: string;       // JSON string of tool output
+}
+```
+
+**Example:**
+```json
+{
+  "hook": "PostToolUse",
+  "session_id": "abc123",
+  "cwd": "/Users/foo/repo",
+  "tool_name": "Edit",
+  "tool_response": "{\"success\":true}",
+  "ts": 1697000001250
+}
+```
+
+### Notification
+
+```typescript
+interface NotificationPayload extends BaseHookPayload {
+  hook: 'Notification';
+  message: string;             // Notification text
+}
+```
+
+**Example:**
+```json
+{
+  "hook": "Notification",
+  "session_id": "abc123",
+  "message": "Refactoring completed successfully",
+  "ts": 1697000002000
+}
+```
+
+### Stop / SubagentStop
+
+```typescript
+interface StopPayload extends BaseHookPayload {
+  hook: 'Stop' | 'SubagentStop';
+  // No additional fields
+}
+```
+
+**Example:**
+```json
+{
+  "hook": "Stop",
+  "session_id": "abc123",
+  "ts": 1697000003000
+}
+```
+
+## Capture Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Test Initialization                                      │
+├─────────────────────────────────────────────────────────────┤
+│  ContextManager creates bundle directory                    │
+│    ├─ .vibe-artifacts/{testId}/                             │
+│    └─ Set env: VIBE_BUNDLE_DIR=/path/to/bundle              │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 2. Agent Execution Starts                                   │
+├─────────────────────────────────────────────────────────────┤
+│  Agent invokes tool (e.g., Edit)                            │
+│    ├─ PreToolUse hook fires                                 │
+│    ├─ Hook script reads from stdin                          │
+│    ├─ Hook script checks VIBE_BUNDLE_DIR                    │
+│    └─ Hook script appends to hooks.ndjson                   │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 3. Tool Execution                                           │
+├─────────────────────────────────────────────────────────────┤
+│  Tool executes (e.g., file edited)                          │
+│    ├─ PostToolUse hook fires                                │
+│    ├─ Hook script appends to hooks.ndjson                   │
+│    └─ ContextManager processes event (real-time)            │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 4. Watcher Invocation (Optional)                            │
+├─────────────────────────────────────────────────────────────┤
+│  ContextManager.processHookEvent() called                   │
+│    ├─ Correlate PreToolUse + PostToolUse → ToolCall         │
+│    ├─ Update PartialRunResult                               │
+│    └─ Invoke watchers (if registered)                       │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 5. Agent Completion                                         │
+├─────────────────────────────────────────────────────────────┤
+│  ContextManager.finalize() called                           │
+│    ├─ Read hooks.ndjson                                     │
+│    ├─ Correlate all tool calls                              │
+│    ├─ Generate summary.json                                 │
+│    └─ Return RunResult                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Event Correlation
+
+### Tool Call Correlation
+
+**Problem:** Hooks fire independently. We need to pair PreToolUse + PostToolUse into a single ToolCall.
+
+**Solution:** Correlate by `tool_name` and timestamp sequence.
+
+```typescript
+function correlateToolCalls(hookEvents: HookEvent[]): ToolCall[] {
+  const toolCalls: ToolCall[] = [];
+  const pending = new Map<string, PreToolUseEvent>();
+
+  for (const event of hookEvents) {
+    if (event.hook === 'PreToolUse') {
+      // Store for later correlation
+      pending.set(event.tool_name, event);
+    } else if (event.hook === 'PostToolUse') {
+      // Find matching PreToolUse
+      const preEvent = pending.get(event.tool_name);
+      if (preEvent) {
+        // Success: correlated pair
+        toolCalls.push({
+          name: event.tool_name,
+          input: JSON.parse(preEvent.tool_input || '{}'),
+          output: JSON.parse(event.tool_response || '{}'),
+          ok: true,
+          startedAt: preEvent.ts,
+          endedAt: event.ts,
+          durationMs: event.ts - preEvent.ts,
+          cwd: preEvent.cwd,
+        });
+        pending.delete(event.tool_name);
+      } else {
+        // PostToolUse without matching PreToolUse (shouldn't happen)
+        console.warn(`[vibe-check] Orphaned PostToolUse for tool: ${event.tool_name}`);
+      }
+    }
+  }
+
+  // Handle unmatched PreToolUse (tool failed or still in progress)
+  for (const [name, preEvent] of pending) {
+    toolCalls.push({
+      name,
+      input: JSON.parse(preEvent.tool_input || '{}'),
+      ok: false, // No PostToolUse = failure
+      startedAt: preEvent.ts,
+      cwd: preEvent.cwd,
+    });
+  }
+
+  return toolCalls;
+}
+```
+
+**Edge cases:**
+- **No PostToolUse** → Tool failed or timed out (`ok: false`)
+- **Orphaned PostToolUse** → Warning logged, event skipped
+- **Multiple tools with same name** → Correlated by timestamp order
+
+### Timeline Reconstruction
+
+**Unified timeline** merges SDK events + hook events:
+
+```typescript
+async function* buildTimeline(bundleDir: string): AsyncIterable<TimelineEvent> {
+  // Read events.ndjson (SDK events)
+  const sdkEvents = await readNDJSON(join(bundleDir, 'events.ndjson'));
+
+  // Read hooks.ndjson (hook events)
+  const hookEvents = await readNDJSON(join(bundleDir, 'hooks.ndjson'));
+
+  // Merge and sort by timestamp
+  const allEvents = [
+    ...sdkEvents.map(e => ({ type: 'sdk', event: e, ts: e.ts })),
+    ...hookEvents.map(e => ({ type: 'hook', event: e, ts: e.ts })),
+  ].sort((a, b) => a.ts - b.ts);
+
+  // Yield merged timeline
+  for (const item of allEvents) {
+    if (item.type === 'sdk') {
+      yield { type: 'sdk-message', role: item.event.role, ts: item.ts };
+    } else {
+      yield { type: 'hook', name: item.event.hook, ts: item.ts };
+    }
+  }
+}
+```
+
+## Real-Time Processing
+
+### Watcher Support
+
+Watchers need **real-time updates** during execution. ContextManager provides this via `processHookEvent()`:
+
+```typescript
+// Inside AgentRunner
+for await (const hookEvent of hookStream) {
+  // Update partial state
+  const partialResult = await contextManager.processHookEvent(hookEvent);
+
+  // Invoke watchers (sequential)
+  if (isSignificantEvent(hookEvent)) {
+    for (const watcher of watchers) {
+      await watcher(partialResult); // May throw (abort execution)
+    }
+  }
+}
+```
+
+**Significant events** (trigger watchers):
+- `PostToolUse` - After each tool completes
+- `TodoUpdate` - When TODO status changes
+- `Notification` - When agent sends notification
+
+**Non-significant events** (no watchers):
+- `PreToolUse` - Don't trigger until PostToolUse
+- `SessionStart/End` - Not relevant for assertions
+
+## Error Handling
+
+### Hook Script Failures
+
+**Philosophy:** Hook failures should **never** fail tests.
+
+```javascript
+// Hook script (.claude/hooks/vibe-hook.js)
+try {
+  appendFileSync(hookFile, line, 'utf-8');
+} catch (err) {
+  // Log to stderr but don't exit with error code
+  console.error(`[vibe-check] Hook write failed: ${err.message}`);
+  process.exit(0); // Exit successfully
+}
+```
+
+### Correlation Failures
+
+**Philosophy:** Partial data is better than no data.
+
+```typescript
+try {
+  const toolCalls = correlateToolCalls(hookEvents);
+} catch (err) {
+  console.warn(`[vibe-check] Tool call correlation failed: ${err.message}`);
+  this.hookCaptureStatus.complete = false;
+  this.hookCaptureStatus.warnings.push(err.message);
+  // Continue with empty tool calls array
+  const toolCalls = [];
+}
+```
+
+### Missing Hooks
+
+**User control via matcher:**
+
+```typescript
+vibeTest('strict capture', async ({ runAgent, expect }) => {
+  const result = await runAgent({ agent, prompt });
+
+  // Assert all hooks captured successfully
+  expect(result).toHaveCompleteHookData();
+  // Fails if hookCaptureStatus.complete === false
+});
+```
+
+## Performance Considerations
+
+### Non-Blocking Writes
+
+**Hook scripts use `appendFileSync` (blocking) but exit immediately:**
+```javascript
+appendFileSync(hookFile, line, 'utf-8'); // ~1ms
+process.exit(0); // Immediate
+```
+
+**Impact on agent execution:** Negligible (<1ms per hook)
+
+### Sequential Watchers
+
+**Watchers run sequentially to avoid race conditions:**
+```typescript
+// Watchers execute one at a time
+for (const watcher of watchers) {
+  await watcher(partialResult); // Wait for completion
+}
+```
+
+**Rationale:** Prevents race conditions where multiple watchers access the same state.
+
+### Lazy Hook Reading
+
+**Hooks only read during finalization:**
+```typescript
+// During execution: hooks written to disk (non-blocking)
+// After execution: hooks read and correlated (once)
+const hookEvents = await readNDJSON(join(bundleDir, 'hooks.ndjson'));
+```
+
+**Memory impact:** Zero during execution, ~10 KB during finalization.
+
+## Best Practices
+
+### Setting Up Hooks
+
+1. **Install hook script:**
+```bash
+mkdir -p .claude/hooks
+cat > .claude/hooks/vibe-hook.js << 'EOF'
+#!/usr/bin/env node
+# (script content from above)
+EOF
+chmod +x .claude/hooks/vibe-hook.js
+```
+
+1. **Configure in settings:**
+```json
+{
+  "hooks": {
+    "PreToolUse": ".claude/hooks/vibe-hook.js",
+    "PostToolUse": ".claude/hooks/vibe-hook.js"
+  }
+}
+```
+
+### Debugging Hook Issues
+
+**Check hook capture status:**
+```typescript
+const result = await runAgent({ agent, prompt });
+console.log(result.hookCaptureStatus);
+// { complete: true, missingEvents: [], warnings: [] }
+```
+
+**Inspect hooks.ndjson:**
+```bash
+cat .vibe-artifacts/{testId}/hooks.ndjson | jq
+```
+
+**Enable debug logging:**
+```typescript
+// In hook script
+console.error(`[vibe-check] Hook fired: ${payload.hook}`);
+```
+
+### Custom Hook Handlers
+
+**Extend hook script for analytics:**
+```javascript
+// Send to analytics service
+if (payload.hook === 'PostToolUse') {
+  fetch('https://analytics.example.com/tools', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }).catch(() => {}); // Non-blocking, ignore failures
+}
+```
+
+## See Also
+
+- [Context Manager](/explanation/architecture/context-manager) - Hook processing orchestration
+- [Run Bundle](/explanation/architecture/run-bundle) - hooks.ndjson format
+- [Auto-Capture](/explanation/concepts/auto-capture) - What hooks capture
+- [Claude Code Hooks Documentation](https://docs.claude.com/en/docs/claude-code/hooks) - Official hook reference

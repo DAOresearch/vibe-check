@@ -1,0 +1,656 @@
+---
+title: MCP Server Integration
+description: Extend agent capabilities with Model Context Protocol servers for specialized tools and operations
+sidebar:
+  order: 1
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers how to integrate Model Context Protocol (MCP) servers with vibe-check to extend agent capabilities with custom tools. You'll learn how to configure, secure, and use MCP servers in tests and workflows.
+
+<Aside type="tip">
+  **What is MCP?** The Model Context Protocol is a standard for extending LLM capabilities with custom tools. See [modelcontextprotocol.io](https://modelcontextprotocol.io) for the full specification.
+</Aside>
+
+## What are MCP Servers?
+
+**MCP servers** provide agents with specialized tools for specific domains:
+
+- **Filesystem** - Read/write files with path restrictions
+- **Database** - SQL operations (PostgreSQL, MySQL, etc.)
+- **Docker** - Container management
+- **Git** - Version control operations
+- **Custom** - Build your own tools
+
+Without MCP servers, agents are limited to built-in Claude Code tools (Read, Write, Edit, Bash, etc.). MCP servers expand this toolkit.
+
+---
+
+## Basic Configuration
+
+MCP servers are configured in the `mcpServers` field of `RunAgentOptions` or `AgentConfig`:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('use filesystem MCP', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'List all TypeScript files in src/',
+    mcpServers: {
+      filesystem: {
+        command: 'npx',
+        args: ['@modelcontextprotocol/server-filesystem', './src'],
+        allowedTools: ['read_file', 'list_directory']
+      }
+    }
+  });
+
+  expect(result).toHaveUsedTool('list_directory');
+});
+```
+
+### MCPServerConfig
+
+Each MCP server has this structure:
+
+```typescript
+interface MCPServerConfig {
+  /** Server command (e.g., 'node', 'python', 'npx') */
+  command: string;
+
+  /** Command arguments */
+  args?: string[];
+
+  /** Environment variables */
+  env?: Record<string, string>;
+
+  /** Allowed tool names (whitelist) */
+  allowedTools?: string[];
+}
+```
+
+---
+
+## Common MCP Servers
+
+### Filesystem Server
+
+Provides safe file operations with path restrictions:
+
+```typescript
+vibeTest('filesystem operations', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Read all package.json files and summarize dependencies',
+    mcpServers: {
+      filesystem: {
+        command: 'npx',
+        args: [
+          '@modelcontextprotocol/server-filesystem',
+          './src',      // Restrict to src/ directory
+          './package.json'
+        ],
+        allowedTools: [
+          'read_file',
+          'list_directory'
+          // Note: 'write_file' not allowed (read-only access)
+        ]
+      }
+    }
+  });
+
+  expect(result).toHaveUsedTool('read_file');
+  expect(result.files.changed().length).toBe(0);  // No writes
+});
+```
+
+<Aside type="caution">
+  Always restrict filesystem access to specific directories. Never give unrestricted access to the entire filesystem.
+</Aside>
+
+### Database Server
+
+Execute SQL operations on PostgreSQL databases:
+
+```typescript
+import { defineAgent } from '@dao/vibe-check';
+
+const dbAgent = defineAgent({
+  name: 'database-admin',
+  mcpServers: {
+    database: {
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-postgres'],
+      env: {
+        POSTGRES_URL: process.env.DATABASE_URL  // Pass connection string via env
+      },
+      allowedTools: [
+        'query',      // Execute SELECT queries
+        'schema',     // Read schema information
+        'migrate'     // Run migrations
+      ]
+    }
+  }
+});
+
+vibeTest('database migration', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent: dbAgent,
+    prompt: 'Add a created_at column to the users table'
+  });
+
+  expect(result).toHaveUsedTool('migrate');
+});
+```
+
+<Aside type="caution">
+  **Security:** Never hardcode database credentials. Always use environment variables.
+</Aside>
+
+### Docker Server
+
+Manage Docker containers and images:
+
+```typescript
+vibeTest('container deployment', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Build and start the app container',
+    mcpServers: {
+      docker: {
+        command: 'npx',
+        args: ['@modelcontextprotocol/server-docker'],
+        allowedTools: [
+          'build_image',
+          'start_container',
+          'list_containers'
+        ]
+      }
+    }
+  });
+
+  expect(result).toHaveUsedTool('build_image');
+  expect(result).toHaveUsedTool('start_container');
+});
+```
+
+### Git Server
+
+Version control operations:
+
+```typescript
+vibeTest('git operations', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Create a feature branch and commit changes',
+    mcpServers: {
+      git: {
+        command: 'npx',
+        args: ['@modelcontextprotocol/server-git', './'],
+        allowedTools: [
+          'branch',
+          'commit',
+          'status'
+          // Note: 'push' not allowed for safety
+        ]
+      }
+    }
+  });
+
+  expect(result).toHaveUsedTool('branch');
+  expect(result).toHaveUsedTool('commit');
+});
+```
+
+---
+
+## Multiple MCP Servers
+
+Use multiple servers for different capabilities:
+
+```typescript
+vibeTest('full-stack deployment', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: 'Deploy the application',
+    mcpServers: {
+      // Database operations
+      database: {
+        command: 'npx',
+        args: ['@mcp/postgres'],
+        env: { POSTGRES_URL: process.env.DATABASE_URL },
+        allowedTools: ['migrate', 'query']
+      },
+
+      // Docker operations
+      docker: {
+        command: 'npx',
+        args: ['@mcp/docker'],
+        allowedTools: ['build_image', 'start_container']
+      },
+
+      // Git operations
+      git: {
+        command: 'npx',
+        args: ['@mcp/git', './'],
+        allowedTools: ['status', 'commit']
+      }
+    }
+  });
+
+  // Agent can use tools from all servers
+  console.log('Tools used:', result.tools.all().map(t => t.name));
+});
+```
+
+---
+
+## Workflow Integration
+
+### Agent-Level Configuration
+
+Configure MCP servers once for reuse:
+
+```typescript
+import { defineAgent, vibeWorkflow } from '@dao/vibe-check';
+
+const deploymentAgent = defineAgent({
+  name: 'deployer',
+  mcpServers: {
+    docker: {
+      command: 'npx',
+      args: ['@mcp/docker'],
+      allowedTools: ['build_image', 'start_container', 'stop_container']
+    },
+    database: {
+      command: 'npx',
+      args: ['@mcp/postgres'],
+      env: { POSTGRES_URL: process.env.DATABASE_URL },
+      allowedTools: ['migrate', 'query']
+    }
+  }
+});
+
+vibeWorkflow('deployment pipeline', async (wf) => {
+  // All stages use the same MCP servers
+  await wf.stage('run migrations', {
+    agent: deploymentAgent,
+    prompt: '/migrate-database'
+  });
+
+  await wf.stage('deploy app', {
+    agent: deploymentAgent,
+    prompt: '/deploy-containers'
+  });
+});
+```
+
+### Per-Stage Configuration
+
+Override MCP servers for specific stages:
+
+```typescript
+vibeWorkflow('multi-stage deployment', async (wf) => {
+  // Stage 1: Database only
+  await wf.stage('migrate database', {
+    prompt: '/migrate',
+    mcpServers: {
+      database: {
+        command: 'npx',
+        args: ['@mcp/postgres'],
+        env: { POSTGRES_URL: process.env.DATABASE_URL }
+      }
+    }
+  });
+
+  // Stage 2: Docker only
+  await wf.stage('deploy containers', {
+    prompt: '/deploy',
+    mcpServers: {
+      docker: {
+        command: 'npx',
+        args: ['@mcp/docker']
+      }
+    }
+  });
+
+  // Stage 3: Both servers
+  await wf.stage('finalize deployment', {
+    prompt: '/finalize',
+    mcpServers: {
+      database: { command: 'npx', args: ['@mcp/postgres'] },
+      docker: { command: 'npx', args: ['@mcp/docker'] }
+    }
+  });
+});
+```
+
+---
+
+## Security Best Practices
+
+### 1. Use allowedTools Whitelist
+
+Always restrict tools to the minimum necessary:
+
+```typescript
+// ✅ Good: Whitelist only necessary tools
+mcpServers: {
+  filesystem: {
+    command: 'npx',
+    args: ['@mcp/filesystem', './src'],
+    allowedTools: ['read_file', 'list_directory']  // Read-only
+  }
+}
+
+// ❌ Bad: No restriction (all tools allowed)
+mcpServers: {
+  filesystem: {
+    command: 'npx',
+    args: ['@mcp/filesystem', './']
+    // Missing allowedTools - allows delete_file, write_file, etc.
+  }
+}
+```
+
+### 2. Use Environment Variables for Secrets
+
+Never hardcode credentials:
+
+```typescript
+// ✅ Good: Use environment variables
+mcpServers: {
+  database: {
+    command: 'npx',
+    args: ['@mcp/postgres'],
+    env: {
+      POSTGRES_URL: process.env.DATABASE_URL,
+      DB_PASSWORD: process.env.DB_PASSWORD
+    }
+  }
+}
+
+// ❌ Bad: Hardcoded credentials
+mcpServers: {
+  database: {
+    command: 'npx',
+    args: ['@mcp/postgres'],
+    env: {
+      POSTGRES_URL: 'postgresql://user:password@localhost/db'  // Exposed!
+    }
+  }
+}
+```
+
+### 3. Restrict Filesystem Access
+
+Limit access to specific directories:
+
+```typescript
+// ✅ Good: Specific directory
+args: ['@mcp/filesystem', './src', './tests']
+
+// ❌ Bad: Unrestricted access
+args: ['@mcp/filesystem', '/']
+```
+
+### 4. Avoid Dangerous Tools in Production
+
+Be careful with destructive operations:
+
+```typescript
+// ✅ Good: Safe tools for production
+allowedTools: ['query', 'schema']  // Read-only
+
+// ⚠️ Dangerous: Allow with caution
+allowedTools: ['migrate', 'drop_table', 'delete']  // Destructive
+```
+
+---
+
+## Custom MCP Servers
+
+Build custom MCP servers for specialized needs:
+
+### Example: Custom API Server
+
+```typescript
+// custom-api-server.ts
+import { MCPServer } from '@modelcontextprotocol/sdk';
+
+const server = new MCPServer({
+  name: 'custom-api',
+  tools: [
+    {
+      name: 'fetch_user',
+      description: 'Fetch user data from API',
+      parameters: {
+        userId: { type: 'string', required: true }
+      },
+      handler: async ({ userId }) => {
+        const response = await fetch(`https://api.example.com/users/${userId}`);
+        return response.json();
+      }
+    }
+  ]
+});
+
+server.start();
+```
+
+### Use Custom Server
+
+```typescript
+vibeTest('use custom API', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'Get user data for user ID 123',
+    mcpServers: {
+      customApi: {
+        command: 'node',
+        args: ['./custom-api-server.js'],
+        allowedTools: ['fetch_user']
+      }
+    }
+  });
+
+  expect(result).toHaveUsedTool('fetch_user');
+});
+```
+
+---
+
+## Troubleshooting
+
+### Server Not Starting
+
+Check that the server command and args are correct:
+
+```typescript
+// Debug server configuration
+vibeTest('debug MCP server', async ({ runAgent }) => {
+  try {
+    const result = await runAgent({
+      prompt: 'Test MCP',
+      mcpServers: {
+        test: {
+          command: 'npx',
+          args: ['@mcp/filesystem', './'],
+          allowedTools: ['read_file']
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Server failed to start:', error);
+    // Check: Is the package installed?
+    // Check: Are args correct?
+    // Check: Does the server work standalone?
+  }
+});
+```
+
+### Tool Not Found
+
+Verify tool names match server's exposed tools:
+
+```typescript
+// ✅ Good: Correct tool name
+allowedTools: ['read_file']  // Matches server tool name
+
+// ❌ Bad: Incorrect tool name
+allowedTools: ['readFile']  // Server uses 'read_file', not 'readFile'
+```
+
+### Permission Errors
+
+Check filesystem paths and environment variables:
+
+```typescript
+// Ensure paths are accessible
+mcpServers: {
+  filesystem: {
+    command: 'npx',
+    args: ['@mcp/filesystem', './src'],  // Must exist
+    allowedTools: ['read_file']
+  }
+}
+```
+
+---
+
+## Testing MCP Server Integration
+
+### Verify Tool Usage
+
+```typescript
+vibeTest('verify MCP tools', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: 'List files and read package.json',
+    mcpServers: {
+      filesystem: {
+        command: 'npx',
+        args: ['@mcp/filesystem', './'],
+        allowedTools: ['list_directory', 'read_file']
+      }
+    }
+  });
+
+  // Verify tools were used
+  expect(result).toHaveUsedTool('list_directory');
+  expect(result).toHaveUsedTool('read_file');
+
+  // Check tool call details
+  const listCalls = result.tools.filter('list_directory');
+  expect(listCalls.length).toBeGreaterThan(0);
+
+  const readCalls = result.tools.filter('read_file');
+  expect(readCalls.some(t => t.input?.includes('package.json'))).toBe(true);
+});
+```
+
+### Test Error Handling
+
+```typescript
+vibeTest('MCP error handling', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: 'Read non-existent file',
+    mcpServers: {
+      filesystem: {
+        command: 'npx',
+        args: ['@mcp/filesystem', './'],
+        allowedTools: ['read_file']
+      }
+    }
+  });
+
+  // Check if error was handled
+  const readCalls = result.tools.filter('read_file');
+  const failedReads = readCalls.filter(t => t.result?.includes('ERROR'));
+
+  expect(failedReads.length).toBeGreaterThan(0);
+});
+```
+
+---
+
+## Performance Considerations
+
+### Server Startup Time
+
+MCP servers add startup overhead:
+
+```typescript
+// Measure server startup impact
+vibeTest('MCP startup performance', async ({ runAgent }) => {
+  const start = Date.now();
+
+  const result = await runAgent({
+    prompt: 'Quick task',
+    mcpServers: {
+      filesystem: { command: 'npx', args: ['@mcp/filesystem', './'] }
+    }
+  });
+
+  const duration = Date.now() - start;
+  console.log('Total time (with MCP):', duration, 'ms');
+
+  // Server startup typically adds 1-3 seconds
+});
+```
+
+### Reuse Agents to Avoid Restarts
+
+```typescript
+// ✅ Good: Define once, reuse
+const dbAgent = defineAgent({
+  name: 'db',
+  mcpServers: { database: { /* config */ } }
+});
+
+vibeTest('test 1', async ({ runAgent }) => {
+  await runAgent({ agent: dbAgent, prompt: '/task1' });
+});
+
+vibeTest('test 2', async ({ runAgent }) => {
+  await runAgent({ agent: dbAgent, prompt: '/task2' });
+});
+```
+
+---
+
+## Best Practices Summary
+
+1. **Whitelist Tools** - Use `allowedTools` to restrict access
+2. **Use Environment Variables** - Never hardcode secrets
+3. **Restrict Paths** - Limit filesystem access to specific directories
+4. **Test Locally First** - Verify MCP servers work standalone before integrating
+5. **Handle Errors** - Check `result.tools` for failed tool calls
+6. **Reuse Configurations** - Use `defineAgent` for common MCP setups
+7. **Document Tool Usage** - Comment which tools each task needs
+8. **Monitor Performance** - Track server startup overhead
+
+---
+
+## Available MCP Servers
+
+| Server | Package | Tools | Use Case |
+|--------|---------|-------|----------|
+| **Filesystem** | `@modelcontextprotocol/server-filesystem` | read_file, write_file, list_directory, delete_file | File operations with path restrictions |
+| **PostgreSQL** | `@modelcontextprotocol/server-postgres` | query, schema, migrate | SQL database operations |
+| **Docker** | `@modelcontextprotocol/server-docker` | build_image, start_container, stop_container, list_containers | Container management |
+| **Git** | `@modelcontextprotocol/server-git` | branch, commit, status, diff, log | Version control operations |
+
+<Aside type="note">
+  **More Servers:** Browse available MCP servers at [modelcontextprotocol.io/servers](https://modelcontextprotocol.io/servers).
+</Aside>
+
+---
+
+## What's Next?
+
+Now that you understand MCP servers, explore:
+
+- **[Cost Optimization →](/guides/advanced/cost-optimization/)** - Reduce costs when using MCP tools
+- **[Building Workflows →](/guides/automation/building-workflows/)** - Use MCP in workflows
+- **[defineAgent() →](/api/core/defineagent/)** - Configure agents with MCP servers
+
+Or learn more about MCP:
+
+- **[MCP Specification](https://modelcontextprotocol.io)** - Official MCP documentation
+- **[MCPServerConfig →](/api/types/configuration/#mcpserverconfig)** - Type reference

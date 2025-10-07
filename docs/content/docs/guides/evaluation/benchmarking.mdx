@@ -1,0 +1,663 @@
+---
+title: Benchmarking
+description: Compare models, prompts, and configurations using matrix testing and LLM judges
+sidebar:
+  order: 3
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers how to benchmark different models, prompts, and configurations. You'll learn how to use matrix testing with LLM judges to systematically compare performance, quality, and cost.
+
+<Aside type="tip">
+  **Prerequisites:** This guide assumes you understand matrix testing and judges. See [Matrix Testing →](/guides/testing/matrix-testing/) and [Using Judge →](/guides/evaluation/using-judge/).
+</Aside>
+
+## What is Benchmarking?
+
+**Benchmarking** is the process of systematically comparing different configurations to find the best option. In vibe-check, you can benchmark:
+
+- **Models** - Compare Claude Sonnet, Haiku, and Opus
+- **Prompts** - Test different prompt variations
+- **Parameters** - Find optimal maxTurns, temperature, etc.
+- **Agent Configurations** - Compare different tool setups
+
+---
+
+## Basic Model Benchmarking
+
+Compare models on the same task:
+
+```typescript
+import { defineTestSuite, defineAgent, vibeTest } from '@dao/vibe-check';
+
+// Define agents with different models
+const sonnetAgent = defineAgent({
+  name: 'sonnet',
+  model: 'claude-sonnet-4-5-20250929'
+});
+
+const haikuAgent = defineAgent({
+  name: 'haiku',
+  model: 'claude-3-5-haiku-20241022'
+});
+
+const opusAgent = defineAgent({
+  name: 'opus',
+  model: 'claude-opus-4-20250514'
+});
+
+// Benchmark all models
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent, opusAgent]
+  },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name} - refactoring task`, async ({ runAgent, judge, expect }) => {
+      const result = await runAgent({
+        agent,
+        prompt: '/refactor src/utils.ts --improve-readability'
+      });
+
+      // Evaluate with a judge
+      const judgment = await judge(result, {
+        rubric: {
+          name: 'Code Quality',
+          criteria: [
+            { name: 'readability', description: 'Code is easy to read' },
+            { name: 'correctness', description: 'Refactoring preserves behavior' }
+          ]
+        }
+      });
+
+      expect(judgment.passed).toBe(true);
+
+      // Log metrics for comparison
+      console.log(`${agent.name} results:`, {
+        passed: judgment.passed,
+        cost: result.metrics.cost.total,
+        tokens: result.metrics.tokens.total,
+        duration: result.metrics.timing.total
+      });
+    });
+  }
+});
+```
+
+**Output:**
+```
+✓ sonnet - refactoring task (12.3s)
+  sonnet results: { passed: true, cost: 0.0234, tokens: 5420, duration: 12300 }
+
+✓ haiku - refactoring task (8.1s)
+  haiku results: { passed: true, cost: 0.0089, tokens: 4210, duration: 8100 }
+
+✓ opus - refactoring task (18.7s)
+  opus results: { passed: true, cost: 0.0512, tokens: 6890, duration: 18700 }
+```
+
+---
+
+## Multi-Dimensional Benchmarking
+
+Test multiple dimensions simultaneously:
+
+```typescript
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent],
+    maxTurns: [8, 16, 32],
+    prompt: [
+      '/refactor --style=functional',
+      '/refactor --style=object-oriented'
+    ]
+  },
+  test: ({ agent, maxTurns, prompt }) => {
+    vibeTest(
+      `${agent.name} with ${maxTurns} turns: ${prompt}`,
+      async ({ runAgent, judge, expect }) => {
+        const result = await runAgent({
+          agent,
+          prompt,
+          maxTurns
+        });
+
+        const judgment = await judge(result, { rubric: codeQualityRubric });
+
+        expect(judgment.passed).toBe(true);
+      }
+    );
+  }
+});
+
+// Generates 12 tests (2 agents × 3 maxTurns × 2 prompts)
+```
+
+---
+
+## Quality Benchmarking
+
+Use judges to evaluate quality across models:
+
+```typescript
+const qualityRubric = {
+  name: 'Overall Quality',
+  criteria: [
+    {
+      name: 'correctness',
+      description: 'Implementation is functionally correct',
+      weight: 0.4
+    },
+    {
+      name: 'code_quality',
+      description: 'Code is readable and well-structured',
+      weight: 0.3
+    },
+    {
+      name: 'testing',
+      description: 'Has adequate test coverage',
+      weight: 0.3
+    }
+  ],
+  passThreshold: 0.75
+};
+
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent, opusAgent]
+  },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name} quality benchmark`, async ({ runAgent, judge }) => {
+      const result = await runAgent({
+        agent,
+        prompt: '/implement user authentication with JWT'
+      });
+
+      const judgment = await judge(result, {
+        rubric: qualityRubric
+      });
+
+      // Store results for comparison
+      console.log(`\n=== ${agent.name} Quality Report ===`);
+      console.log('Overall passed:', judgment.passed);
+      console.log('Overall score:', judgment.score?.toFixed(2));
+      console.log('\nCriteria scores:');
+
+      for (const [name, result] of Object.entries(judgment.criteria)) {
+        console.log(`  ${name}: ${result.passed ? '✓' : '✗'} - ${result.reason}`);
+      }
+
+      console.log('\nMetrics:');
+      console.log(`  Cost: $${result.metrics.cost.total.toFixed(4)}`);
+      console.log(`  Tokens: ${result.metrics.tokens.total}`);
+      console.log(`  Duration: ${(result.metrics.timing.total / 1000).toFixed(1)}s`);
+    });
+  }
+});
+```
+
+**Output:**
+```
+=== sonnet Quality Report ===
+Overall passed: true
+Overall score: 0.85
+
+Criteria scores:
+  correctness: ✓ - Implementation works correctly for all test cases
+  code_quality: ✓ - Well-structured with clear naming
+  testing: ✓ - Good test coverage with edge cases
+
+Metrics:
+  Cost: $0.0456
+  Tokens: 8230
+  Duration: 15.2s
+```
+
+---
+
+## Cost-Performance Trade-offs
+
+Compare cost vs. quality across models:
+
+```typescript
+interface BenchmarkResult {
+  agent: string;
+  passed: boolean;
+  qualityScore: number;
+  cost: number;
+  tokens: number;
+  duration: number;
+  costPerPoint: number;  // Cost per quality point
+}
+
+const results: BenchmarkResult[] = [];
+
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent, opusAgent]
+  },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name} cost benchmark`, async ({ runAgent, judge }) => {
+      const result = await runAgent({
+        agent,
+        prompt: '/implement feature X'
+      });
+
+      const judgment = await judge(result, {
+        rubric: qualityRubric
+      });
+
+      const benchmarkResult: BenchmarkResult = {
+        agent: agent.name,
+        passed: judgment.passed,
+        qualityScore: judgment.score || 0,
+        cost: result.metrics.cost.total,
+        tokens: result.metrics.tokens.total,
+        duration: result.metrics.timing.total,
+        costPerPoint: result.metrics.cost.total / (judgment.score || 1)
+      };
+
+      results.push(benchmarkResult);
+
+      // Log individual result
+      console.log(`\n${agent.name}:`, {
+        quality: benchmarkResult.qualityScore.toFixed(2),
+        cost: `$${benchmarkResult.cost.toFixed(4)}`,
+        costPerPoint: `$${benchmarkResult.costPerPoint.toFixed(4)}`
+      });
+    });
+  }
+});
+
+// After all tests, compare results
+test.afterAll(() => {
+  console.log('\n=== Benchmark Summary ===\n');
+
+  // Sort by cost efficiency
+  results.sort((a, b) => a.costPerPoint - b.costPerPoint);
+
+  console.log('Cost Efficiency (lower is better):');
+  for (const result of results) {
+    console.log(`  ${result.agent}: $${result.costPerPoint.toFixed(4)} per quality point`);
+  }
+
+  // Find best quality
+  const bestQuality = results.reduce((best, current) =>
+    current.qualityScore > best.qualityScore ? current : best
+  );
+
+  // Find cheapest
+  const cheapest = results.reduce((best, current) =>
+    current.cost < best.cost ? current : best
+  );
+
+  console.log('\nBest Quality:', bestQuality.agent, `(${bestQuality.qualityScore.toFixed(2)})`);
+  console.log('Cheapest:', cheapest.agent, `($${cheapest.cost.toFixed(4)})`);
+});
+```
+
+**Output:**
+```
+=== Benchmark Summary ===
+
+Cost Efficiency (lower is better):
+  haiku: $0.0112 per quality point
+  sonnet: $0.0538 per quality point
+  opus: $0.0654 per quality point
+
+Best Quality: opus (0.92)
+Cheapest: haiku ($0.0089)
+```
+
+---
+
+## Prompt Engineering Benchmarking
+
+Test different prompt variations:
+
+```typescript
+const prompts = [
+  {
+    name: 'direct',
+    text: '/implement shopping cart'
+  },
+  {
+    name: 'detailed',
+    text: '/implement shopping cart with add/remove/update quantity features. Include validation and tests.'
+  },
+  {
+    name: 'step-by-step',
+    text: '/implement shopping cart. First, create the data model. Then add CRUD operations. Finally, add validation and tests.'
+  }
+];
+
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent],
+    promptConfig: prompts
+  },
+  test: ({ agent, promptConfig }) => {
+    vibeTest(
+      `${promptConfig.name} prompt`,
+      async ({ runAgent, judge, expect }) => {
+        const result = await runAgent({
+          agent,
+          prompt: promptConfig.text
+        });
+
+        const judgment = await judge(result, {
+          rubric: {
+            name: 'Feature Completeness',
+            criteria: [
+              { name: 'features', description: 'All features implemented' },
+              { name: 'validation', description: 'Input validation included' },
+              { name: 'testing', description: 'Tests included' }
+            ]
+          }
+        });
+
+        console.log(`${promptConfig.name} prompt:`, {
+          passed: judgment.passed,
+          score: judgment.score?.toFixed(2),
+          cost: `$${result.metrics.cost.total.toFixed(4)}`
+        });
+
+        expect(judgment.passed).toBe(true);
+      }
+    );
+  }
+});
+```
+
+---
+
+## Specialized Benchmarks
+
+### Speed Benchmark
+
+Focus on execution time:
+
+```typescript
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent, opusAgent]
+  },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name} speed`, async ({ runAgent, expect }) => {
+      const startTime = Date.now();
+
+      const result = await runAgent({
+        agent,
+        prompt: '/format all files in src/'
+      });
+
+      const duration = Date.now() - startTime;
+
+      expect(result.files.changed().length).toBeGreaterThan(0);
+
+      console.log(`${agent.name}: ${(duration / 1000).toFixed(1)}s`);
+    });
+  }
+});
+```
+
+### Cost Benchmark
+
+Focus on minimizing cost:
+
+```typescript
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent],
+    maxTurns: [4, 8, 16]
+  },
+  test: ({ agent, maxTurns }) => {
+    vibeTest(
+      `${agent.name} with ${maxTurns} turns - cost`,
+      async ({ runAgent, expect }) => {
+        const result = await runAgent({
+          agent,
+          prompt: '/simple refactoring task',
+          maxTurns
+        });
+
+        // Ensure quality threshold
+        expect(result.files.changed().length).toBeGreaterThan(0);
+
+        // Log cost
+        console.log(
+          `${agent.name} (${maxTurns} turns): $${result.metrics.cost.total.toFixed(4)}`
+        );
+
+        // Fail if too expensive
+        expect(result.metrics.cost.total).toBeLessThan(0.10);
+      }
+    );
+  }
+});
+```
+
+### Accuracy Benchmark
+
+Measure how often the model gets it right:
+
+```typescript
+const testCases = [
+  { input: 'calculate fibonacci', expectedOutput: 'fibonacci function' },
+  { input: 'validate email', expectedOutput: 'email validation regex' },
+  { input: 'parse JSON', expectedOutput: 'JSON.parse with error handling' }
+];
+
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent, opusAgent],
+    testCase: testCases
+  },
+  test: ({ agent, testCase }) => {
+    vibeTest(
+      `${agent.name} - ${testCase.input}`,
+      async ({ runAgent, judge, expect }) => {
+        const result = await runAgent({
+          agent,
+          prompt: `/implement ${testCase.input}`
+        });
+
+        const judgment = await judge(result, {
+          rubric: {
+            name: 'Correctness',
+            criteria: [
+              {
+                name: 'implementation',
+                description: `Correctly implements ${testCase.expectedOutput}`
+              }
+            ]
+          }
+        });
+
+        expect(judgment.passed).toBe(true);
+      }
+    );
+  }
+});
+```
+
+---
+
+## Statistical Analysis
+
+Track results across multiple runs:
+
+```typescript
+import { describe } from 'vitest';
+
+interface RunStats {
+  agent: string;
+  runs: number;
+  passRate: number;
+  avgCost: number;
+  avgQuality: number;
+}
+
+const stats = new Map<string, {
+  total: number;
+  passed: number;
+  totalCost: number;
+  totalQuality: number;
+}>();
+
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent, opusAgent],
+    run: [1, 2, 3, 4, 5]  // 5 runs per agent
+  },
+  test: ({ agent, run }) => {
+    vibeTest(
+      `${agent.name} run ${run}`,
+      async ({ runAgent, judge }) => {
+        const result = await runAgent({
+          agent,
+          prompt: '/implement feature'
+        });
+
+        const judgment = await judge(result, { rubric: qualityRubric });
+
+        // Track stats
+        const agentStats = stats.get(agent.name) || {
+          total: 0,
+          passed: 0,
+          totalCost: 0,
+          totalQuality: 0
+        };
+
+        agentStats.total++;
+        if (judgment.passed) agentStats.passed++;
+        agentStats.totalCost += result.metrics.cost.total;
+        agentStats.totalQuality += judgment.score || 0;
+
+        stats.set(agent.name, agentStats);
+      }
+    );
+  }
+});
+
+test.afterAll(() => {
+  console.log('\n=== Statistical Summary ===\n');
+
+  const results: RunStats[] = [];
+
+  for (const [agent, data] of stats.entries()) {
+    results.push({
+      agent,
+      runs: data.total,
+      passRate: (data.passed / data.total) * 100,
+      avgCost: data.totalCost / data.total,
+      avgQuality: data.totalQuality / data.total
+    });
+  }
+
+  // Sort by pass rate
+  results.sort((a, b) => b.passRate - a.passRate);
+
+  for (const result of results) {
+    console.log(`${result.agent}:`);
+    console.log(`  Pass rate: ${result.passRate.toFixed(1)}%`);
+    console.log(`  Avg cost: $${result.avgCost.toFixed(4)}`);
+    console.log(`  Avg quality: ${result.avgQuality.toFixed(2)}`);
+    console.log('');
+  }
+});
+```
+
+---
+
+## Best Practices
+
+### 1. Use Consistent Prompts
+
+```typescript
+// ✅ Good: Same prompt for fair comparison
+const BENCHMARK_PROMPT = '/implement user authentication';
+
+defineTestSuite({
+  matrix: { agent: [sonnetAgent, haikuAgent] },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name}`, async ({ runAgent }) => {
+      await runAgent({ agent, prompt: BENCHMARK_PROMPT });
+    });
+  }
+});
+
+// ❌ Bad: Different prompts make comparison unfair
+defineTestSuite({
+  matrix: { agent: [sonnetAgent, haikuAgent] },
+  test: ({ agent }) => {
+    const prompt = agent.name === 'sonnet'
+      ? '/implement auth with details'
+      : '/implement auth';  // Inconsistent!
+  }
+});
+```
+
+### 2. Set Consistent Timeouts
+
+```typescript
+// ✅ Good: Same timeout for all
+defineTestSuite({
+  matrix: { agent: [sonnetAgent, haikuAgent] },
+  test: ({ agent }) => {
+    vibeTest(`${agent.name}`, async ({ runAgent }) => {
+      await runAgent({
+        agent,
+        prompt: '/task',
+        timeout: 60_000  // Same for all
+      });
+    });
+  }
+});
+```
+
+### 3. Run Multiple Iterations
+
+```typescript
+// ✅ Good: Multiple runs for statistical significance
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent],
+    iteration: [1, 2, 3, 4, 5]
+  },
+  test: ({ agent, iteration }) => {
+    vibeTest(`${agent.name} run ${iteration}`, async ({ runAgent }) => {
+      // ...
+    });
+  }
+});
+```
+
+### 4. Separate Quality and Speed Benchmarks
+
+```typescript
+// ✅ Good: Separate benchmarks for different goals
+describe('quality benchmarks', () => {
+  // Focus on quality, allow longer time
+});
+
+describe('speed benchmarks', () => {
+  // Focus on speed, simpler tasks
+});
+```
+
+---
+
+## What's Next?
+
+Now that you understand benchmarking, explore:
+
+- **[Matrix Testing →](/guides/testing/matrix-testing/)** - Deep dive into matrix testing
+- **[Using Judge →](/guides/evaluation/using-judge/)** - Learn more about judges
+- **[Cost Optimization →](/guides/advanced/cost-optimization/)** - Reduce benchmark costs
+
+Or dive into the API reference:
+
+- **[defineTestSuite() →](/api/utilities/config/#definetestsuite)** - Matrix testing API
+- **[judge() →](/api/core/judge/)** - Judge API documentation
+- **[RunResult →](/api/types/run-result/)** - Access metrics for benchmarking

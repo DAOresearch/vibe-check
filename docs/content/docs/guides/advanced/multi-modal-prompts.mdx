@@ -1,0 +1,634 @@
+---
+title: Multi-Modal Prompts
+description: Use text, images, files, and commands in prompts with the prompt() helper
+sidebar:
+  order: 4
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers how to create multi-modal prompts using the `prompt()` helper. You'll learn how to combine text, images, files, and slash commands for richer agent interactions.
+
+<Aside type="tip">
+  **Why Multi-Modal?** Provide agents with visual context (screenshots, diagrams), reference documents (PRDs, specs), and structured commands for better results.
+</Aside>
+
+## What is prompt()?
+
+The `prompt()` helper builds multi-modal user messages that combine:
+- **Text** - Natural language instructions
+- **Images** - Screenshots, diagrams, UI mockups
+- **Files** - Reference documents (PRDs, specs, examples)
+- **Commands** - Slash commands like `/refactor`, `/analyze`
+
+```typescript
+import { prompt } from '@dao/vibe-check';
+
+const messages = prompt({
+  text: 'Implement this design',
+  images: ['./mockup.png'],
+  files: ['./requirements.md']
+});
+
+await runAgent({ prompt: messages });
+```
+
+---
+
+## Basic Usage
+
+### Text Only
+
+Simple text prompts don't need `prompt()`:
+
+```typescript
+// These are equivalent:
+await runAgent({ prompt: 'Refactor auth.ts' });
+await runAgent({ prompt: prompt({ text: 'Refactor auth.ts' }) });
+```
+
+<Aside type="note">
+  For simple text, pass strings directly. Use `prompt()` only when adding images, files, or commands.
+</Aside>
+
+### Text + Images
+
+Include screenshots or diagrams:
+
+```typescript
+import { vibeTest, prompt } from '@dao/vibe-check';
+
+vibeTest('implement from mockup', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      text: 'Implement this login screen',
+      images: ['./mockups/login.png']
+    })
+  });
+
+  expect(result).toHaveChangedFiles(['src/components/Login.tsx']);
+});
+```
+
+### Text + Files
+
+Include reference documents:
+
+```typescript
+vibeTest('implement from spec', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      text: 'Implement the API according to this spec',
+      files: [
+        './docs/api-spec.md',
+        './docs/data-models.md'
+      ]
+    })
+  });
+
+  expect(result).toHaveChangedFiles(['src/api/**/*.ts']);
+});
+```
+
+### Slash Commands
+
+Execute Claude Code commands:
+
+```typescript
+vibeTest('refactor with context', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      command: '/refactor',
+      files: ['./docs/architecture.md']  // Provide architectural context
+    })
+  });
+});
+```
+
+---
+
+## Combining Multiple Elements
+
+### All Together
+
+Combine text, images, files, and commands:
+
+```typescript
+vibeTest('full-featured prompt', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      command: '/implement',
+      text: 'Build the user profile page matching this design and requirements',
+      images: [
+        './mockups/profile-page.png',
+        './mockups/mobile-view.png'
+      ],
+      files: [
+        './docs/prd.md',
+        './docs/api-schema.json',
+        './examples/similar-component.tsx'
+      ]
+    })
+  });
+});
+```
+
+**What the agent receives:**
+1. `/implement` command
+2. Text instructions
+3. Two images (design mockups)
+4. Three reference files (PRD, API schema, example code)
+
+---
+
+## Image Handling
+
+### Image Sources
+
+`prompt()` accepts images as:
+- **File paths** - Automatically read and converted to base64
+- **Buffers** - Pre-loaded image data
+
+```typescript
+import { readFile } from 'node:fs/promises';
+
+// From file paths (preferred)
+prompt({
+  images: ['./screenshot.png', './diagram.jpg']
+});
+
+// From buffers
+const imageBuffer = await readFile('./screenshot.png');
+prompt({
+  images: [imageBuffer]
+});
+
+// Mix both
+prompt({
+  images: [
+    './screenshot1.png',  // File path
+    imageBuffer           // Buffer
+  ]
+});
+```
+
+### Supported Formats
+
+Claude supports common image formats:
+- PNG (`.png`)
+- JPEG (`.jpg`, `.jpeg`)
+- GIF (`.gif`)
+- WebP (`.webp`)
+
+<Aside type="caution">
+  **Image Size Limits:** Keep images under 5MB each. Large images may increase cost and latency.
+</Aside>
+
+### Error Handling
+
+Image loading errors are logged but don't fail the prompt:
+
+```typescript
+prompt({
+  text: 'Analyze this design',
+  images: [
+    './exists.png',        // ✅ Loaded
+    './missing.png',       // ⚠️ Warning logged, skipped
+    './invalid.txt'        // ⚠️ Warning logged, skipped
+  ]
+});
+
+// Prompt succeeds with only exists.png
+```
+
+---
+
+## File Handling
+
+### Reading Reference Files
+
+Files are automatically read and included as text:
+
+```typescript
+prompt({
+  text: 'Implement according to spec',
+  files: ['./spec.md']
+});
+
+// Agent receives:
+// Text: "Implement according to spec"
+// File content: "# API Specification\n\n## Endpoints\n..."
+```
+
+### Multiple Files
+
+Include multiple reference documents:
+
+```typescript
+prompt({
+  files: [
+    './requirements.md',    // User requirements
+    './architecture.md',    // System architecture
+    './api-spec.json',      // API specification
+    './examples/user.ts'    // Example code
+  ]
+});
+```
+
+<Aside type="note">
+  Files are included in the order specified. Order matters if references build on each other.
+</Aside>
+
+### File Types
+
+Any text file format works:
+- Markdown (`.md`, `.mdx`)
+- Code (`.ts`, `.js`, `.py`, `.java`, etc.)
+- JSON/YAML (`.json`, `.yaml`, `.yml`)
+- Plain text (`.txt`)
+
+---
+
+## Practical Examples
+
+### UI Implementation from Mockup
+
+```typescript
+vibeTest('implement from design', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      text: `
+        Implement this checkout page:
+        - Match the design exactly
+        - Use Tailwind CSS
+        - Add form validation
+        - Handle payment processing
+      `,
+      images: ['./designs/checkout.png'],
+      files: [
+        './docs/design-system.md',
+        './src/components/Button.tsx'  // Example component
+      ]
+    })
+  });
+
+  expect(result).toHaveChangedFiles(['src/pages/Checkout.tsx']);
+});
+```
+
+### API Implementation from Spec
+
+```typescript
+vibeTest('implement API', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      command: '/implement',
+      text: 'Create REST API endpoints for user management',
+      files: [
+        './openapi.json',           // OpenAPI specification
+        './src/models/User.ts',     // Data model
+        './src/middleware/auth.ts'  // Auth example
+      ]
+    })
+  });
+
+  expect(result).toHaveChangedFiles(['src/routes/users.ts']);
+  expect(result).toHaveUsedTool('Write');
+});
+```
+
+### Bug Fix with Screenshot
+
+```typescript
+vibeTest('fix visual bug', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      text: `
+        Fix the alignment issue shown in the screenshot.
+        The submit button should be aligned to the right.
+      `,
+      images: ['./bug-reports/misaligned-button.png'],
+      files: ['./src/components/Form.tsx']
+    })
+  });
+
+  expect(result.files.get('src/components/Form.tsx')).toBeDefined();
+});
+```
+
+### Multi-Step Implementation
+
+```typescript
+vibeTest('implement feature with examples', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      text: `
+        Implement user authentication similar to the example,
+        but add OAuth support as shown in the diagram.
+      `,
+      images: ['./diagrams/oauth-flow.png'],
+      files: [
+        './requirements.md',
+        './examples/basic-auth.ts',
+        './config/oauth-providers.json'
+      ]
+    })
+  });
+});
+```
+
+---
+
+## Best Practices
+
+### 1. Provide Context, Not Duplication
+
+```typescript
+// ✅ Good: Reference existing code
+prompt({
+  text: 'Add OAuth support to the existing auth system',
+  files: ['./src/auth/index.ts']
+});
+
+// ❌ Bad: Include entire codebase
+prompt({
+  text: 'Add OAuth support',
+  files: [
+    './src/auth/index.ts',
+    './src/auth/password.ts',
+    './src/auth/jwt.ts',
+    './src/auth/session.ts',
+    // ... 20 more files
+  ]
+});
+// Too much context = higher cost, slower response
+```
+
+### 2. Use Descriptive Text
+
+```typescript
+// ✅ Good: Clear instructions
+prompt({
+  text: 'Implement the mobile responsive version of this design, focusing on <768px screens',
+  images: ['./mobile-mockup.png']
+});
+
+// ❌ Bad: Vague instructions
+prompt({
+  text: 'Do this',
+  images: ['./mobile-mockup.png']
+});
+```
+
+### 3. Order Files Logically
+
+```typescript
+// ✅ Good: Logical order (spec → examples → related code)
+files: [
+  './requirements.md',     // What to build
+  './examples/similar.ts', // How similar code works
+  './src/utils/helper.ts'  // Related utilities
+]
+
+// ❌ Bad: Random order
+files: [
+  './src/utils/helper.ts',
+  './requirements.md',
+  './examples/similar.ts'
+]
+```
+
+### 4. Optimize Image Size
+
+```typescript
+// ✅ Good: Optimized images
+images: ['./mockup-optimized.png']  // 500 KB
+
+// ❌ Bad: Uncompressed images
+images: ['./mockup-raw.png']  // 8 MB
+// Higher cost, slower upload, may hit limits
+```
+
+### 5. Combine Related Commands
+
+```typescript
+// ✅ Good: One command with context
+prompt({
+  command: '/refactor',
+  text: 'Focus on improving performance and readability',
+  files: ['./docs/performance-guidelines.md']
+});
+
+// ❌ Bad: Separate prompts
+// First: "/refactor"
+// Then: "improve performance"
+// Then: provide guidelines separately
+```
+
+---
+
+## Advanced Patterns
+
+### Conditional File Inclusion
+
+```typescript
+vibeTest('adaptive prompt', async ({ runAgent }) => {
+  const isComplexFeature = true;
+
+  const result = await runAgent({
+    prompt: prompt({
+      text: 'Implement user profile',
+      files: [
+        './requirements.md',
+        // Include architecture docs only for complex features
+        ...(isComplexFeature ? ['./architecture.md'] : [])
+      ]
+    })
+  });
+});
+```
+
+### Dynamic Image Loading
+
+```typescript
+import { readdir } from 'node:fs/promises';
+
+vibeTest('analyze all mockups', async ({ runAgent }) => {
+  // Find all mockup files
+  const mockupFiles = (await readdir('./mockups'))
+    .filter(f => f.endsWith('.png'))
+    .map(f => `./mockups/${f}`);
+
+  const result = await runAgent({
+    prompt: prompt({
+      text: 'Analyze consistency across all mockups',
+      images: mockupFiles
+    })
+  });
+});
+```
+
+### Programmatic File Selection
+
+```typescript
+vibeTest('include related files', async ({ runAgent }) => {
+  const featureFiles = [
+    './src/features/auth/Login.tsx',
+    './src/features/auth/Register.tsx',
+    './src/features/auth/ForgotPassword.tsx'
+  ];
+
+  const result = await runAgent({
+    prompt: prompt({
+      text: 'Add OAuth support to all auth components',
+      files: featureFiles
+    })
+  });
+});
+```
+
+---
+
+## Workflows with Multi-Modal Prompts
+
+### Multi-Stage Design Implementation
+
+```typescript
+import { vibeWorkflow, prompt } from '@dao/vibe-check';
+
+vibeWorkflow('design implementation', async (wf) => {
+  // Stage 1: Implement desktop view
+  const desktop = await wf.stage('desktop view', {
+    prompt: prompt({
+      text: 'Implement desktop layout (>1024px)',
+      images: ['./mockups/desktop.png'],
+      files: ['./requirements.md']
+    })
+  });
+
+  // Stage 2: Implement mobile view
+  const mobile = await wf.stage('mobile view', {
+    prompt: prompt({
+      text: 'Add mobile responsive styles (<768px)',
+      images: ['./mockups/mobile.png'],
+      files: [desktop.files.get('src/App.tsx')?.path]  // Reference desktop implementation
+    })
+  });
+
+  // Stage 3: Add interactivity
+  await wf.stage('interactivity', {
+    prompt: prompt({
+      command: '/implement',
+      text: 'Add form validation and animations',
+      files: ['./docs/interaction-spec.md']
+    })
+  });
+});
+```
+
+---
+
+## Troubleshooting
+
+### Images Not Loading
+
+**Symptom:** Images appear missing in agent context
+
+**Solution:** Check file paths and permissions
+
+```typescript
+import { access } from 'node:fs/promises';
+
+// Verify images exist
+const imagePath = './mockup.png';
+try {
+  await access(imagePath);
+  console.log('✓ Image exists');
+} catch {
+  console.error('✗ Image not found:', imagePath);
+}
+```
+
+### File Reading Errors
+
+**Symptom:** Files not included in prompt
+
+**Solution:** Check file encoding and size
+
+```typescript
+import { stat, readFile } from 'node:fs/promises';
+
+const filePath = './spec.md';
+const stats = await stat(filePath);
+
+console.log('File size:', stats.size, 'bytes');
+
+if (stats.size > 1024 * 1024) {  // > 1MB
+  console.warn('File is large, may increase cost');
+}
+
+// Test read
+const content = await readFile(filePath, 'utf-8');
+console.log('Preview:', content.slice(0, 100));
+```
+
+### High Costs
+
+**Symptom:** Multi-modal prompts cost more than expected
+
+**Solution:** Reduce image/file count
+
+```typescript
+// ✅ Good: Essential images only
+images: ['./primary-mockup.png']
+
+// ❌ Bad: All possible images
+images: [
+  './mockup1.png',
+  './mockup2.png',
+  './mockup3.png',
+  './mockup4.png',
+  './mockup5.png'
+]
+```
+
+---
+
+## API Reference
+
+### prompt() Signature
+
+```typescript
+function prompt(config: {
+  /** Text content */
+  text?: string;
+
+  /** Images (file paths or buffers) */
+  images?: Array<string | Buffer>;
+
+  /** Files to include (content will be read) */
+  files?: Array<string>;
+
+  /** Slash command */
+  command?: string;
+}): AsyncIterable<SDKUserMessage>;
+```
+
+### Return Type
+
+`AsyncIterable<SDKUserMessage>` - Compatible with `runAgent({ prompt })`.
+
+---
+
+## What's Next?
+
+Now that you understand multi-modal prompts, explore:
+
+- **[Building Workflows →](/guides/automation/building-workflows/)** - Use multi-modal prompts in workflows
+- **[Cost Optimization →](/guides/advanced/cost-optimization/)** - Optimize multi-modal prompt costs
+- **[Using Judge →](/guides/evaluation/using-judge/)** - Evaluate multi-modal results
+
+Or dive into the API reference:
+
+- **[prompt() API →](/api/utilities/config/#prompt)** - Complete API documentation
+- **[runAgent() →](/api/core/runagent/)** - Agent execution API

@@ -1,0 +1,742 @@
+---
+title: RunResult
+description: Complete agent execution result returned by runAgent() and stage() with files, tools, metrics, and git state
+sidebar:
+  order: 4
+---
+
+`RunResult` is the complete execution result returned by `runAgent()` and `stage()`. It contains all captured data from the agent run including file changes, tool calls, metrics, logs, and git state.
+
+## Interface
+
+```typescript
+interface RunResult {
+  bundleDir: string;
+  files: FileAccessor;
+  tools: ToolAccessor;
+  timeline: TimelineAccessor;
+  metrics: {
+    cost: {
+      total: number;
+      inputTokens: number;
+      outputTokens: number;
+    };
+    tokens: {
+      input: number;
+      output: number;
+      total: number;
+    };
+    turns: number;
+    durationMs: number;
+  };
+  logs: string[];
+  git: GitState;
+  hookCaptureStatus: 'complete' | 'partial' | 'failed';
+}
+```
+
+## Properties
+
+### bundleDir
+
+```typescript
+bundleDir: string
+```
+
+Absolute path to the bundle directory containing all execution artifacts.
+
+**Purpose:**
+- Reference artifacts in subsequent stages
+- Access generated files, logs, and transcripts
+- Share data between workflow stages
+
+**Example:**
+
+```typescript
+vibeTest('artifact usage', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/generate report.json'
+  });
+
+  // Access the generated report
+  const reportPath = `${result.bundleDir}/workspace/report.json`;
+  const reportData = await fs.readFile(reportPath, 'utf-8');
+
+  console.log('Report saved to:', result.bundleDir);
+});
+```
+
+**Bundle Structure:**
+```
+.vibe-bundles/
+└── test-abc123-run-1/
+    ├── workspace/         # Working directory snapshot
+    ├── transcript.jsonl   # Full conversation
+    ├── hooks.jsonl        # Raw hook events
+    ├── git-state.json     # Git metadata
+    └── run-result.json    # Complete RunResult
+```
+
+**See Also:**
+- [Bundle Cleanup →](/guides/advanced/bundle-cleanup/) - Managing bundle storage
+
+---
+
+### files
+
+```typescript
+files: FileAccessor
+```
+
+Access file changes captured during execution.
+
+**Methods:**
+
+#### `changed()`
+Get all files changed during this run.
+
+```typescript
+const result = await runAgent({ prompt: '/refactor' });
+const allFiles = result.files.changed();
+console.log(`Changed ${allFiles.length} files`);
+```
+
+#### `get(path)`
+Get a specific file by path.
+
+```typescript
+const file = result.files.get('src/index.ts');
+if (file) {
+  const beforeContent = await file.before?.text();
+  const afterContent = await file.after?.text();
+  console.log('File was modified:', beforeContent !== afterContent);
+}
+```
+
+#### `filter(glob)`
+Filter files by glob pattern(s).
+
+```typescript
+// Single pattern
+const tsFiles = result.files.filter('**/*.ts');
+
+// Multiple patterns
+const testFiles = result.files.filter(['**/*.test.ts', '**/*.spec.ts']);
+```
+
+#### `stats()`
+Get file change statistics.
+
+```typescript
+const stats = result.files.stats();
+console.log(`
+  Added: ${stats.added}
+  Modified: ${stats.modified}
+  Deleted: ${stats.deleted}
+  Renamed: ${stats.renamed}
+  Total: ${stats.total}
+`);
+```
+
+**See Also:**
+- [FileChange →](/api/types/file-change/) - File change interface
+
+---
+
+### tools
+
+```typescript
+tools: ToolAccessor
+```
+
+Access tool calls captured during execution.
+
+**Methods:**
+
+#### `all()`
+Get all tool calls from this run.
+
+```typescript
+const result = await runAgent({ prompt: '/implement' });
+const allTools = result.tools.all();
+console.log(`Used ${allTools.length} tools`);
+```
+
+#### `used(name)`
+Count uses of a specific tool.
+
+```typescript
+const editCount = result.tools.used('Edit');
+const bashCount = result.tools.used('Bash');
+console.log(`Made ${editCount} edits and ran ${bashCount} commands`);
+```
+
+#### `findFirst(name)`
+Find the first use of a specific tool.
+
+```typescript
+const firstWrite = result.tools.findFirst('Write');
+if (firstWrite) {
+  console.log('First file written:', firstWrite.input.file_path);
+}
+```
+
+#### `filter(name)`
+Get all calls to a specific tool.
+
+```typescript
+const bashCalls = result.tools.filter('Bash');
+bashCalls.forEach(call => {
+  console.log('Command:', call.input.command);
+  console.log('Output:', call.result);
+});
+```
+
+#### `failed()`
+Get all failed tool calls.
+
+```typescript
+const failures = result.tools.failed();
+if (failures.length > 0) {
+  console.error('Failed tools:');
+  failures.forEach(t => {
+    console.error(`  ${t.name}: ${t.error}`);
+  });
+}
+```
+
+#### `succeeded()`
+Get all successful tool calls.
+
+```typescript
+const successful = result.tools.succeeded();
+console.log(`${successful.length} tools completed successfully`);
+```
+
+**See Also:**
+- [ToolCall →](/api/types/tool-call/) - Tool call interface
+
+---
+
+### timeline
+
+```typescript
+timeline: TimelineAccessor
+```
+
+Access unified timeline of events from this run.
+
+**Methods:**
+
+#### `events()`
+Returns async iterable over all timeline events.
+
+```typescript
+const result = await runAgent({ prompt: '/task' });
+
+for await (const event of result.timeline.events()) {
+  console.log(`${event.type} at ${event.timestamp}`);
+
+  if (event.type === 'tool_use') {
+    console.log(`  Tool: ${event.toolName}`);
+  } else if (event.type === 'todo_update') {
+    console.log(`  TODO: ${event.todo.content} (${event.todo.status})`);
+  }
+}
+```
+
+**Event Types:**
+- `tool_use` - Tool invocation
+- `tool_result` - Tool completion
+- `todo_update` - TODO status change
+- `notification` - Agent notification
+
+**Example - Filter by Type:**
+
+```typescript
+const result = await runAgent({ prompt: '/implement' });
+
+// Get only tool events
+const toolEvents = [];
+for await (const evt of result.timeline.events()) {
+  if (evt.type === 'tool_use' || evt.type === 'tool_result') {
+    toolEvents.push(evt);
+  }
+}
+
+console.log(`Timeline contains ${toolEvents.length} tool events`);
+```
+
+---
+
+### metrics
+
+```typescript
+metrics: {
+  cost: {
+    total: number;
+    inputTokens: number;
+    outputTokens: number;
+  };
+  tokens: {
+    input: number;
+    output: number;
+    total: number;
+  };
+  turns: number;
+  durationMs: number;
+}
+```
+
+Execution metrics including cost, token usage, and duration.
+
+**Properties:**
+
+#### `cost`
+Cost breakdown in USD.
+
+```typescript
+const result = await runAgent({ prompt: '/task' });
+console.log(`Total cost: $${result.metrics.cost.total.toFixed(4)}`);
+console.log(`Input tokens cost: $${result.metrics.cost.inputTokens.toFixed(4)}`);
+console.log(`Output tokens cost: $${result.metrics.cost.outputTokens.toFixed(4)}`);
+```
+
+#### `tokens`
+Token usage statistics.
+
+```typescript
+console.log(`Input: ${result.metrics.tokens.input.toLocaleString()}`);
+console.log(`Output: ${result.metrics.tokens.output.toLocaleString()}`);
+console.log(`Total: ${result.metrics.tokens.total.toLocaleString()}`);
+```
+
+#### `turns`
+Number of agent turns (request/response cycles).
+
+```typescript
+console.log(`Completed in ${result.metrics.turns} turns`);
+```
+
+#### `durationMs`
+Total execution time in milliseconds.
+
+```typescript
+const seconds = result.metrics.durationMs / 1000;
+console.log(`Execution took ${seconds.toFixed(2)}s`);
+```
+
+**Example - Cost Analysis:**
+
+```typescript
+vibeTest('cost tracking', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement feature',
+    model: 'claude-sonnet-4-5-20250929'
+  });
+
+  // Analyze cost efficiency
+  const costPerTurn = result.metrics.cost.total / result.metrics.turns;
+  console.log(`Cost per turn: $${costPerTurn.toFixed(4)}`);
+
+  // Assert budget compliance
+  expect(result.metrics.cost.total).toBeLessThan(0.50);
+});
+```
+
+**See Also:**
+- [Cost Optimization →](/guides/advanced/cost-optimization/) - Reducing execution costs
+
+---
+
+### logs
+
+```typescript
+logs: string[]
+```
+
+Array of log messages from the agent execution.
+
+**Purpose:**
+- Debug agent behavior
+- Search for errors or warnings
+- Validate execution flow
+
+**Example:**
+
+```typescript
+const result = await runAgent({ prompt: '/deploy' });
+
+// Check for errors
+const hasErrors = result.logs.some(log =>
+  log.toLowerCase().includes('error')
+);
+
+if (hasErrors) {
+  console.error('Deployment had errors:');
+  result.logs
+    .filter(log => log.toLowerCase().includes('error'))
+    .forEach(log => console.error(log));
+}
+
+// Find specific messages
+const deploymentLogs = result.logs.filter(log =>
+  log.includes('deployment')
+);
+```
+
+**Example - Error Detection:**
+
+```typescript
+vibeTest('error handling', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/risky-operation' });
+
+  // Verify no errors in logs
+  const errorLogs = result.logs.filter(log =>
+    /error|failed|exception/i.test(log)
+  );
+
+  expect(errorLogs).toHaveLength(0);
+});
+```
+
+---
+
+### git
+
+```typescript
+git: GitState
+```
+
+Git state captured before and after execution.
+
+**Interface:**
+
+```typescript
+interface GitState {
+  before: {
+    commit: string;
+    branch: string;
+  };
+  after: {
+    commit: string;
+    branch: string;
+  };
+  changedFiles: string[];
+  diffs: Map<string, string>;
+}
+```
+
+**Properties:**
+
+#### `before` / `after`
+Git state before and after execution.
+
+```typescript
+const result = await runAgent({ prompt: '/refactor' });
+
+console.log('Starting commit:', result.git.before.commit);
+console.log('Ending commit:', result.git.after.commit);
+console.log('Branch:', result.git.before.branch);
+```
+
+#### `changedFiles`
+List of files changed according to git.
+
+```typescript
+console.log('Git tracked changes:');
+result.git.changedFiles.forEach(file => {
+  console.log(`  ${file}`);
+});
+```
+
+#### `diffs`
+Map of file paths to their git diffs.
+
+```typescript
+const indexDiff = result.git.diffs.get('src/index.ts');
+if (indexDiff) {
+  console.log('Changes to index.ts:');
+  console.log(indexDiff);
+}
+
+// Iterate all diffs
+for (const [path, diff] of result.git.diffs) {
+  console.log(`\n=== ${path} ===`);
+  console.log(diff);
+}
+```
+
+**Example - Verify Git Changes:**
+
+```typescript
+vibeTest('git tracking', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/implement' });
+
+  // Verify changes were committed
+  expect(result.git.before.commit).not.toBe(result.git.after.commit);
+
+  // Verify expected files changed
+  expect(result.git.changedFiles).toContain('src/index.ts');
+
+  // Analyze specific diff
+  const diff = result.git.diffs.get('src/index.ts');
+  expect(diff).toContain('+function newFeature()');
+});
+```
+
+---
+
+### hookCaptureStatus
+
+```typescript
+hookCaptureStatus: 'complete' | 'partial' | 'failed'
+```
+
+Status of hook event capture for this run.
+
+**Values:**
+
+- `'complete'` - All hooks captured successfully
+- `'partial'` - Some hooks failed to capture (data may be incomplete)
+- `'failed'` - Hook capture failed entirely (minimal data available)
+
+**Purpose:**
+- Detect hook capture issues
+- Validate data completeness
+- Debug framework problems
+
+**Example:**
+
+```typescript
+const result = await runAgent({ prompt: '/task' });
+
+if (result.hookCaptureStatus !== 'complete') {
+  console.warn(`Hook capture was ${result.hookCaptureStatus}`);
+  console.warn('Some data may be missing or incomplete');
+}
+
+// Conditionally assert based on capture status
+if (result.hookCaptureStatus === 'complete') {
+  expect(result.tools.all().length).toBeGreaterThan(0);
+} else {
+  console.warn('Skipping tool assertion due to incomplete capture');
+}
+```
+
+**Graceful Degradation:**
+
+Vibe-check is designed to degrade gracefully when hook capture fails:
+
+```typescript
+vibeTest('resilient test', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/task' });
+
+  // Always available (even with failed capture)
+  expect(result.bundleDir).toBeDefined();
+  expect(result.logs).toBeDefined();
+
+  // May be empty with partial/failed capture
+  if (result.hookCaptureStatus === 'complete') {
+    expect(result.files.changed()).toMatchSnapshot();
+    expect(result.tools.used('Edit')).toBeGreaterThan(0);
+  } else {
+    console.warn('Hook capture incomplete, skipping detailed assertions');
+  }
+});
+```
+
+---
+
+## Usage Patterns
+
+### Basic Inspection
+
+```typescript
+vibeTest('inspect run result', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/implement authentication'
+  });
+
+  console.log('=== Run Summary ===');
+  console.log('Bundle:', result.bundleDir);
+  console.log('Files:', result.files.stats());
+  console.log('Tools:', result.tools.all().length);
+  console.log('Cost:', `$${result.metrics.cost.total.toFixed(4)}`);
+  console.log('Duration:', `${result.metrics.durationMs}ms`);
+  console.log('Turns:', result.metrics.turns);
+});
+```
+
+### Cumulative Analysis
+
+```typescript
+vibeTest('multi-run analysis', async ({ runAgent, files, tools }) => {
+  // First run
+  await runAgent({ prompt: '/implement feature A' });
+
+  // Second run
+  await runAgent({ prompt: '/implement feature B' });
+
+  // Analyze cumulative state
+  const allFiles = files.changed();
+  const allTools = tools.all();
+
+  console.log(`Total files changed: ${allFiles.length}`);
+  console.log(`Total tools used: ${allTools.length}`);
+});
+```
+
+### Assertion Patterns
+
+```typescript
+vibeTest('comprehensive assertions', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/refactor code'
+  });
+
+  // File assertions
+  expect(result.files).toHaveChangedFiles(['src/**/*.ts']);
+  expect(result.files.stats().deleted).toBe(0);
+
+  // Tool assertions
+  expect(result.tools.used('Edit')).toBeGreaterThan(0);
+  expect(result.tools.failed()).toHaveLength(0);
+
+  // Cost assertions
+  expect(result.metrics.cost.total).toBeLessThan(1.0);
+
+  // Quality assertions
+  expect(result.logs).not.toContain('ERROR');
+});
+```
+
+### Workflow Stage Results
+
+```typescript
+vibeWorkflow('build and deploy', async (wf) => {
+  // Stage 1: Build
+  const build = await wf.stage('build', {
+    prompt: '/build'
+  });
+
+  console.log('Build output:', build.bundleDir);
+  console.log('Build cost:', build.metrics.cost.total);
+
+  // Stage 2: Deploy (using build artifacts)
+  const deploy = await wf.stage('deploy', {
+    prompt: `/deploy --artifact=${build.bundleDir}/dist`
+  });
+
+  console.log('Deployment files:', deploy.files.changed());
+});
+```
+
+---
+
+## Lazy Loading
+
+File content and git diffs are lazily loaded to avoid memory issues:
+
+```typescript
+const result = await runAgent({ prompt: '/task' });
+
+// No content loaded yet
+const file = result.files.get('large-file.json');
+
+// Content loaded on first access
+const content = await file?.after?.text();  // Lazy load
+
+// Content cached for subsequent access
+const sameContent = await file?.after?.text();  // From cache
+```
+
+**Benefits:**
+- Efficient memory usage
+- Fast RunResult creation
+- Scalable to large file changes
+
+**See Also:**
+- [FileChange →](/api/types/file-change/) - Lazy loading details
+
+---
+
+## Complete Example
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('complete run result example', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement user authentication',
+    model: 'claude-sonnet-4-5-20250929'
+  });
+
+  // 1. File Analysis
+  const authFiles = result.files.filter('src/auth/**');
+  console.log(`Modified ${authFiles.length} auth files`);
+
+  for (const file of authFiles) {
+    const after = await file.after?.text();
+    console.log(`${file.path}: ${after?.split('\n').length} lines`);
+  }
+
+  // 2. Tool Analysis
+  const editCount = result.tools.used('Edit');
+  const bashCount = result.tools.used('Bash');
+  console.log(`Made ${editCount} edits and ran ${bashCount} commands`);
+
+  // Check for failures
+  const failures = result.tools.failed();
+  expect(failures).toHaveLength(0);
+
+  // 3. Cost Analysis
+  console.log('Cost breakdown:');
+  console.log(`  Input tokens: $${result.metrics.cost.inputTokens.toFixed(4)}`);
+  console.log(`  Output tokens: $${result.metrics.cost.outputTokens.toFixed(4)}`);
+  console.log(`  Total: $${result.metrics.cost.total.toFixed(4)}`);
+
+  expect(result.metrics.cost.total).toBeLessThan(0.25);
+
+  // 4. Timeline Analysis
+  let toolCount = 0;
+  for await (const evt of result.timeline.events()) {
+    if (evt.type === 'tool_use') {
+      toolCount++;
+    }
+  }
+  console.log(`Timeline contains ${toolCount} tool events`);
+
+  // 5. Git Verification
+  expect(result.git.changedFiles).toContain('src/auth/login.ts');
+  const loginDiff = result.git.diffs.get('src/auth/login.ts');
+  expect(loginDiff).toContain('+async function login');
+
+  // 6. LLM Evaluation
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Authentication Quality',
+      criteria: [
+        { name: 'security', description: 'Uses secure authentication patterns' },
+        { name: 'error-handling', description: 'Handles auth errors gracefully' }
+      ]
+    }
+  });
+
+  expect(judgment.passed).toBe(true);
+
+  // 7. Bundle Artifacts
+  console.log('Artifacts saved to:', result.bundleDir);
+  console.log('Hook capture:', result.hookCaptureStatus);
+});
+```
+
+---
+
+## See Also
+
+- [runAgent() →](/api/core/runagent/) - Function that returns RunResult
+- [PartialRunResult →](/api/types/partial-result/) - Partial result for watchers
+- [FileChange →](/api/types/file-change/) - File change interface
+- [ToolCall →](/api/types/tool-call/) - Tool call interface
+- [Custom Matchers →](/api/types/matchers/) - Matchers that accept RunResult

@@ -1,0 +1,130 @@
+---
+title: Evaluation Guides
+description: Assess and benchmark agent quality systematically
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Learn how to evaluate agent quality, benchmark performance, and compare models using vibe-check's evaluation features.
+
+## Available Guides
+
+<CardGrid>
+  <Card title="Using Judges" icon="star">
+    [Leverage LLM-based evaluation](/guides/evaluation/using-judge/) to assess agent output quality with rubrics.
+  </Card>
+
+  <Card title="Writing Rubrics" icon="document">
+    [Design effective rubrics](/guides/evaluation/rubrics/) for consistent and reliable quality assessment.
+  </Card>
+
+  <Card title="Benchmarking" icon="rocket">
+    [Compare models and configurations](/guides/evaluation/benchmarking/) with systematic performance analysis.
+  </Card>
+</CardGrid>
+
+---
+
+## Overview
+
+Systematic agent evaluation requires structured assessment criteria and reproducible benchmarking. These guides cover:
+
+- **LLM judges** - Automated quality assessment using AI
+- **Rubric design** - Creating effective evaluation criteria
+- **Benchmarking** - Model comparison and performance analysis
+- **Quality gates** - Enforcement of quality standards
+
+---
+
+## Guide Details
+
+### [Using Judges](/guides/evaluation/using-judge/)
+
+Leverage LLM-based evaluation to assess agent output quality automatically.
+
+**You'll learn:**
+- Configuring judges with rubrics
+- Understanding judge scoring systems
+- Implementing quality gates
+- Debugging judge decisions
+
+**Use cases:**
+- Automated code review
+- Output quality assessment
+- Regression detection
+- Acceptance criteria validation
+
+**Key concepts:**
+- Rubric application
+- Judge model selection
+- Scoring and thresholds
+- Error handling
+
+---
+
+### [Writing Rubrics](/guides/evaluation/rubrics/)
+
+Design effective rubrics for consistent and reliable agent evaluation.
+
+**You'll learn:**
+- Rubric structure and schema
+- Writing clear evaluation criteria
+- Designing effective scoring scales
+- Best practices for rubric design
+
+**Use cases:**
+- Code quality assessment
+- Documentation completeness checks
+- Behavior validation
+- Multi-criteria evaluation
+
+**Key concepts:**
+- Criterion design
+- Scoring scales (binary, numeric, categorical)
+- Weight assignment
+- Criterion independence
+
+---
+
+### [Benchmarking](/guides/evaluation/benchmarking/)
+
+Compare models, configurations, and prompts systematically.
+
+**You'll learn:**
+- Setting up benchmark suites
+- Comparing model performance
+- Analyzing cost vs quality tradeoffs
+- Detecting performance regressions
+
+**Use cases:**
+- Model selection (Sonnet vs Opus vs Haiku)
+- Prompt optimization
+- Configuration tuning
+- Performance monitoring
+
+**Key concepts:**
+- Matrix testing
+- Performance metrics
+- Cost analysis
+- Statistical significance
+
+---
+
+## Related Documentation
+
+### Tutorials
+- [Your First Evaluation](/getting-started/first-evaluation/) - Benchmarking basics
+- [Your First Test](/getting-started/first-test/) - Quality gates with assertions
+
+### API Reference
+- [judge](/api/core/judge/) - Judge API
+- [Rubric](/api/types/rubric/) - Rubric schema and types
+- [RunResult](/api/types/run-result/) - Result inspection interface
+
+### Testing Guides
+- [Matrix Testing](/guides/testing/matrix-testing/) - Cartesian product test generation
+- [Custom Matchers](/guides/testing/custom-matchers/) - `toPassRubric` matcher
+
+### Concepts
+- [Dual API](/explanation/concepts/dual-api/) - vibeTest for evaluation use cases
+- [Auto-Capture](/explanation/concepts/auto-capture/) - What judges can access

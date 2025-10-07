@@ -1,0 +1,475 @@
+---
+title: Run Bundle Storage
+description: On-disk storage structure for execution artifacts and data
+sidebar:
+  order: 3
+---
+
+The **RunBundle** is the on-disk storage structure that holds all execution artifacts for a single agent run. It's designed for efficient storage, lazy loading, and content deduplication.
+
+## Directory Structure
+
+```
+.vibe-artifacts/
+└── {testId}/              # One bundle per test/stage
+    ├── events.ndjson      # SDK stream events (messages, usage, todos)
+    ├── hooks.ndjson       # Claude Code hook events (tool use, notifications)
+    ├── summary.json       # Lightweight summary with pointers
+    └── files/
+        ├── before/
+        │   ├── {sha256}.txt       # File content (uncompressed)
+        │   └── {sha256}.txt.gz    # File content (gzipped, >10KB)
+        └── after/
+            ├── {sha256}.txt
+            └── {sha256}.txt.gz
+```
+
+## File Formats
+
+### 1. events.ndjson
+
+**Purpose:** SDK stream events (messages, usage, todos)
+
+**Format:** Newline-Delimited JSON (NDJSON)
+
+**Why NDJSON:**
+- Streamable (read line-by-line without loading entire file)
+- Append-friendly (write during execution)
+- Easy to parse (one JSON object per line)
+
+**Example:**
+```jsonl
+{"type":"message","role":"assistant","content":"I'll refactor the auth module","ts":1697000000000}
+{"type":"usage","tokens":{"input":120,"output":45},"cost":0.0082}
+{"type":"todo","action":"add","text":"Refactor auth.ts","status":"in_progress","ts":1697000001000}
+{"type":"message","role":"tool","tool":"Edit","result":"...","ts":1697000002000}
+{"type":"usage","tokens":{"input":85,"output":120},"cost":0.0102}
+{"type":"todo","action":"update","text":"Refactor auth.ts","status":"completed","ts":1697000003000}
+{"type":"message","role":"assistant","content":"Refactoring complete","ts":1697000004000}
+```
+
+**Event Types:**
+- `message` - Conversation messages (user/assistant/tool)
+- `usage` - Token usage and cost data
+- `todo` - TODO item updates
+
+### 2. hooks.ndjson
+
+**Purpose:** Claude Code hook events (tool use, notifications)
+
+**Format:** Newline-Delimited JSON (NDJSON)
+
+**Example:**
+```jsonl
+{"hook":"PreToolUse","tool_name":"Read","tool_input":"{\"file_path\":\"src/auth.ts\"}","cwd":"/repo","session_id":"abc123","ts":1697000001500}
+{"hook":"PostToolUse","tool_name":"Read","tool_response":"{\"content\":\"...\"}","cwd":"/repo","session_id":"abc123","ts":1697000001600}
+{"hook":"PreToolUse","tool_name":"Edit","tool_input":"{\"file_path\":\"src/auth.ts\",\"old_string\":\"...\",\"new_string\":\"...\"}","cwd":"/repo","session_id":"abc123","ts":1697000002000}
+{"hook":"PostToolUse","tool_name":"Edit","tool_response":"{\"success\":true}","cwd":"/repo","session_id":"abc123","ts":1697000002250}
+{"hook":"Notification","message":"Refactoring completed successfully","cwd":"/repo","session_id":"abc123","ts":1697000003000}
+```
+
+**Hook Types:**
+- `PreToolUse` - Tool invocation (before execution)
+- `PostToolUse` - Tool result (after execution)
+- `Notification` - Agent notifications
+- `Stop` / `SubagentStop` - Execution completion
+- `SessionStart` / `SessionEnd` - Session lifecycle
+
+**Correlation:**
+- `PreToolUse` + `PostToolUse` with matching `tool_name` → `ToolCall`
+- Timestamp-based ordering for timeline reconstruction
+
+### 3. summary.json
+
+**Purpose:** Lightweight summary with metadata and pointers
+
+**Format:** Single JSON object
+
+**Size:** ~1-5 KB (no large data)
+
+**Schema:**
+```typescript
+interface Summary {
+  testId: string;
+
+  metrics: {
+    totalTokens?: number;
+    totalCostUsd?: number;
+    durationMs?: number;
+    toolCalls?: number;
+    filesChanged?: number;
+  };
+
+  git?: {
+    before?: { head: string; dirty: boolean };
+    after?: { head: string; dirty: boolean };
+  };
+
+  fileStats: {
+    added: number;
+    modified: number;
+    deleted: number;
+    renamed: number;
+    total: number;
+  };
+
+  toolCalls: Array<{
+    name: string;
+    ok: boolean;
+    startedAt: number;
+    endedAt?: number;
+    durationMs?: number;
+    hookRef: { pre: number; post?: number }; // Offsets into hooks.ndjson
+  }>;
+
+  todos: Array<{
+    text: string;
+    status: 'pending' | 'in_progress' | 'completed';
+  }>;
+
+  hookCaptureStatus: {
+    complete: boolean;
+    missingEvents: string[];
+    warnings: string[];
+  };
+}
+```
+
+**Example:**
+```json
+{
+  "testId": "test-abc123",
+  "metrics": {
+    "totalTokens": 450,
+    "totalCostUsd": 0.0215,
+    "durationMs": 12500,
+    "toolCalls": 8,
+    "filesChanged": 3
+  },
+  "git": {
+    "before": { "head": "a1b2c3d4", "dirty": false },
+    "after": { "head": "a1b2c3d4", "dirty": true }
+  },
+  "fileStats": {
+    "added": 0,
+    "modified": 3,
+    "deleted": 0,
+    "renamed": 0,
+    "total": 3
+  },
+  "toolCalls": [
+    {
+      "name": "Read",
+      "ok": true,
+      "startedAt": 1697000001500,
+      "endedAt": 1697000001600,
+      "durationMs": 100,
+      "hookRef": { "pre": 0, "post": 1 }
+    },
+    {
+      "name": "Edit",
+      "ok": true,
+      "startedAt": 1697000002000,
+      "endedAt": 1697000002250,
+      "durationMs": 250,
+      "hookRef": { "pre": 2, "post": 3 }
+    }
+  ],
+  "todos": [
+    { "text": "Refactor auth.ts", "status": "completed" }
+  ],
+  "hookCaptureStatus": {
+    "complete": true,
+    "missingEvents": [],
+    "warnings": []
+  }
+}
+```
+
+### 4. Content-Addressed File Storage
+
+**Purpose:** Store file content before/after changes
+
+**Format:** Plain text or gzipped text
+
+**Naming:** SHA-256 hash of content
+
+**Why SHA-256:**
+- **Deduplication** - Same content = same hash (stored once)
+- **Integrity** - Hash mismatch = corruption
+- **Fast comparison** - Compare hashes instead of content
+
+**Example:**
+```
+files/
+├── before/
+│   ├── a1b2c3d4...txt       # Small file (uncompressed)
+│   └── e5f6a7b8...txt.gz    # Large file (gzipped)
+└── after/
+    ├── a1b2c3d4...txt       # Same hash = unchanged content
+    └── f9g0h1i2...txt.gz    # Different hash = changed content
+```
+
+**Compression Strategy:**
+```typescript
+async function storeFile(content: string): Promise<string> {
+  const sha256 = createHash('sha256').update(content).digest('hex');
+  const filePath = join(bundleDir, 'files', 'after', sha256);
+
+  // Skip if already exists (deduplication)
+  if (await exists(filePath + '.txt') || await exists(filePath + '.txt.gz')) {
+    return sha256;
+  }
+
+  // Compress if large
+  if (content.length > 10 * 1024) {
+    const compressed = await gzip(content);
+    await writeFile(filePath + '.txt.gz', compressed);
+  } else {
+    await writeFile(filePath + '.txt', content);
+  }
+
+  return sha256;
+}
+```
+
+## Bundle Lifecycle
+
+### 1. Creation (Initialization)
+
+```typescript
+// ContextManager creates bundle directory
+const bundleDir = join('.vibe-artifacts', testId);
+await fs.mkdir(bundleDir, { recursive: true });
+await fs.mkdir(join(bundleDir, 'files', 'before'), { recursive: true });
+await fs.mkdir(join(bundleDir, 'files', 'after'), { recursive: true });
+
+// Open write streams
+const eventsWriter = createWriteStream(join(bundleDir, 'events.ndjson'));
+const hooksWriter = createWriteStream(join(bundleDir, 'hooks.ndjson'));
+
+// Set env var for hook scripts
+process.env.VIBE_BUNDLE_DIR = bundleDir;
+```
+
+### 2. Population (During Execution)
+
+```typescript
+// SDK events streamed to events.ndjson
+await eventsWriter.write(JSON.stringify(sdkEvent) + '\n');
+
+// Hooks written directly by hook scripts
+// (Hook script reads from stdin, appends to $VIBE_BUNDLE_DIR/hooks.ndjson)
+```
+
+### 3. Finalization (After Execution)
+
+```typescript
+// Close streams
+await eventsWriter.end();
+await hooksWriter.end();
+
+// Process hooks.ndjson (correlate tool calls)
+const hookEvents = await readNDJSON(join(bundleDir, 'hooks.ndjson'));
+const toolCalls = correlateToolCalls(hookEvents);
+
+// Capture git state and file content
+const fileChanges = await computeFileChanges();
+await storeFileContent(fileChanges);
+
+// Write summary.json
+await fs.writeFile(
+  join(bundleDir, 'summary.json'),
+  JSON.stringify(summary, null, 2)
+);
+```
+
+### 4. Consumption (Lazy Loading)
+
+```typescript
+// Load summary (lightweight, always in memory)
+const summary = JSON.parse(await fs.readFile(join(bundleDir, 'summary.json')));
+
+// Load specific file (on-demand)
+const fileHash = 'a1b2c3d4...';
+const filePath = join(bundleDir, 'files', 'after', `${fileHash}.txt.gz`);
+const content = await readGzipped(filePath);
+
+// Stream timeline events (memory-efficient)
+for await (const line of readLines(join(bundleDir, 'events.ndjson'))) {
+  const event = JSON.parse(line);
+  yield event;
+}
+```
+
+### 5. Cleanup (Retention Policy)
+
+```typescript
+// Default: Delete bundles older than 30 days
+const cutoffTime = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+for (const dir of await fs.readdir('.vibe-artifacts')) {
+  const bundlePath = join('.vibe-artifacts', dir);
+  const stats = await fs.stat(bundlePath);
+
+  // Check if bundle is old
+  if (stats.mtimeMs < cutoffTime) {
+    // Skip protected bundles
+    if (await fs.exists(join(bundlePath, '.vibe-keep'))) {
+      continue;
+    }
+
+    // Delete old bundle
+    await fs.rm(bundlePath, { recursive: true });
+  }
+}
+```
+
+## Design Rationale
+
+### Why NDJSON?
+
+**Pros:**
+- Streamable (process line-by-line)
+- Append-friendly (write during execution)
+- Human-readable (debug-friendly)
+- Language-agnostic (standard format)
+
+**Cons:**
+- Slightly larger than binary formats
+- No built-in compression (mitigated by gzipping files)
+
+**Why chosen:** Streaming and append-friendliness are critical for real-time capture.
+
+### Why Content-Addressed Storage?
+
+**Pros:**
+- Deduplication (unchanged files stored once)
+- Integrity verification (hash mismatch = corruption)
+- Fast equality checks (compare hashes, not content)
+
+**Cons:**
+- Extra CPU for hashing
+- Filename lookup requires hash computation
+
+**Why chosen:** Disk space savings and integrity checks outweigh CPU cost.
+
+### Why Separate summary.json?
+
+**Pros:**
+- Fast access to metadata (no parsing NDJSON)
+- Enables reporters to filter without loading full bundles
+- Clear separation of lightweight/heavy data
+
+**Cons:**
+- Duplication of some data (tool call summaries in summary + hooks.ndjson)
+
+**Why chosen:** Enables fast filtering and memory-efficient reporting.
+
+### Why Hybrid Storage (Bundle + task.meta)?
+
+**Pros:**
+- Bundle = canonical source of truth (persists after test run)
+- task.meta = IPC-friendly (JSON-serializable, small)
+- Reporters can read bundles directly (no IPC overhead)
+
+**Cons:**
+- Two sources of data (potential inconsistency)
+
+**Why chosen:** Scalability (no IPC bottleneck) + persistence (bundles outlive test run).
+
+## Storage Optimization
+
+### Disk Space Savings
+
+**Content deduplication:**
+```
+Example: 100 files changed, 50 unchanged
+- Without deduplication: 100 before + 100 after = 200 files stored
+- With deduplication: 150 files stored (50 shared hashes)
+- Savings: 25%
+```
+
+**Compression:**
+```
+Example: 10 MB file compressed to 1 MB
+- Uncompressed: 10 MB
+- Gzipped: 1 MB
+- Savings: 90%
+```
+
+**Combined:**
+```
+Real-world test with 50 file changes (total 5 MB content):
+- Naive storage: 10 MB (before + after, uncompressed)
+- Optimized storage: 1.2 MB (deduplicated + compressed)
+- Savings: 88%
+```
+
+### Memory Efficiency
+
+**Summary loaded:** ~2 KB
+**File content loaded on-demand:** 0-50 KB per file (when accessed)
+**Total in-memory per test:** ~50 KB (summary + minimal state)
+
+**Comparison:**
+- Eager loading: 10 MB per test → 100 tests = 1 GB
+- Lazy loading: 50 KB per test → 100 tests = 5 MB
+
+Result: **200x memory savings**
+
+## Best Practices
+
+### Protecting Important Bundles
+
+```bash
+# Prevent automatic cleanup
+touch .vibe-artifacts/important-test/.vibe-keep
+```
+
+### Manual Cleanup
+
+```typescript
+import { cleanupBundles } from '@dao/vibe-check/artifacts';
+
+// Delete bundles older than 7 days
+await cleanupBundles({ maxAgeDays: 7 });
+
+// Delete ALL bundles (use with caution!)
+await cleanupBundles({ maxAgeDays: 0 });
+```
+
+### Configuring Retention
+
+```typescript
+// vitest.config.ts
+export default defineVibeConfig({
+  cleanup: {
+    maxAgeDays: 7,        // CI: short retention
+    minFreeDiskMb: 1000,  // Cleanup if <1GB free
+  },
+});
+```
+
+### Reading Bundles Programmatically
+
+```typescript
+import { readBundle } from '@dao/vibe-check/artifacts';
+
+// Read summary
+const summary = await readBundle.summary(bundleDir);
+
+// Stream events
+for await (const event of readBundle.events(bundleDir)) {
+  console.log(event);
+}
+
+// Load file content
+const content = await readBundle.file(bundleDir, sha256);
+```
+
+## See Also
+
+- [Context Manager](/explanation/architecture/context-manager) - Bundle creation and population
+- [Lazy Loading](/explanation/concepts/lazy-loading) - Memory-efficient access
+- [Storage Strategy](/explanation/design/decisions#storage-strategy) - Why hybrid approach

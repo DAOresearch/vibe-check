@@ -1,0 +1,373 @@
+---
+title: Architecture Overview
+description: High-level architecture of vibe-check's testing infrastructure
+sidebar:
+  order: 1
+---
+
+Vibe-check is built on **Vitest v3** with a clean layered architecture that hides complexity while exposing simple primitives. This page explains the high-level design and how components fit together.
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ User Layer (What You Write)                                 │
+├─────────────────────────────────────────────────────────────┤
+│  vibeTest() / vibeWorkflow()                                │
+│  defineAgent() / prompt() / judge()                         │
+│  expect().toHaveChangedFiles() / toPassRubric()             │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Framework Layer (What We Build)                             │
+├─────────────────────────────────────────────────────────────┤
+│  VibeTestContext / WorkflowContext (Fixtures)               │
+│  AgentExecution (Reactive Watchers)                         │
+│  ContextManager (Auto-Capture Orchestration)                │
+│  Custom Matchers (File/Tool/Cost/Judge)                     │
+│  Reporters (Terminal Cost + HTML Reports)                   │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Storage Layer (Hybrid Model)                                │
+├─────────────────────────────────────────────────────────────┤
+│  RunBundle (On-Disk) - events, hooks, files, summary        │
+│  task.meta (In-Memory) - metrics, bundleDir pointer         │
+│  Content-Addressed Files (SHA-256 + gzip)                   │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Integration Layer (External Systems)                        │
+├─────────────────────────────────────────────────────────────┤
+│  Claude Code SDK (@anthropic-ai/sdk)                        │
+│  Claude Code Hooks (PreToolUse, PostToolUse, etc.)          │
+│  Git (Capture diffs and file content)                       │
+│  Vitest v3 (Test runner, reporters, lifecycle)              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Core Components
+
+### 1. Test Infrastructure
+
+#### vibeTest and vibeWorkflow
+
+- Thin wrappers over Vitest's `test.extend()`
+- Inject fixtures (runAgent, judge, expect, annotate)
+- Provide dual APIs for different use cases
+- Location: `src/test/vibeTest.ts`, `src/test/vibeWorkflow.ts`
+
+#### Fixtures (VibeTestContext / WorkflowContext)
+
+- Dependency injection for test functions
+- Manages state accumulation across runs
+- Provides ergonomic API surface
+- Location: `src/test/context.ts`
+
+### 2. Agent Runner
+
+#### runAgent() / stage()
+
+- Executes Claude Code agents via SDK
+- Starts hook capture before execution
+- Returns AgentExecution (thenable with watchers)
+- Delegates capture to ContextManager
+- Location: `src/runner/agentRunner.ts`
+
+#### AgentExecution
+
+- Thenable class (not Promise subclass)
+- Supports reactive watchers for fail-fast testing
+- Wraps Promise with watch(), abort() methods
+- Location: `src/runner/agentExecution.ts`
+
+### 3. Context Manager
+
+#### ContextManager
+
+- Orchestrates capture lifecycle
+- Writes events/hooks to RunBundle during execution
+- Finalizes after execution (correlate, compute, persist)
+- Returns lazy RunResult interface
+- Location: `src/runner/contextManager.ts`
+
+**Responsibilities:**
+1. **Capture Phase** - Write SDK events and hooks to disk
+2. **Correlation Phase** - Pair PreToolUse + PostToolUse → ToolCall
+3. **Git Phase** - Capture before/after state, compute diffs
+4. **Finalization Phase** - Generate summary.json, return RunResult
+
+### 4. Storage System
+
+#### RunBundle (On-Disk)
+
+- Canonical source of truth for execution data
+- NDJSON files for events/hooks (streaming-friendly)
+- Content-addressed file storage (SHA-256 hashing)
+- Gzip compression for large files
+- Location: `.vibe-artifacts/{testId}/`
+
+#### task.meta (In-Memory)
+
+- Lightweight pointer to RunBundle
+- Cost metrics for terminal reporter
+- JSON-serializable (sent across Vitest workers)
+- Location: Vitest's `task.meta` object
+
+#### RunResult (Lazy Interface)
+
+- Provides ergonomic access to RunBundle data
+- File content loaded on-demand (text() / stream())
+- Minimizes memory usage for parallel tests
+- Location: `src/runner/runResult.ts`
+
+### 5. Evaluation System
+
+#### judge()
+
+- LLM-based evaluation using rubrics
+- Formats rubric into prompt internally
+- Returns structured results (via Zod schemas)
+- Supports custom result types (generic parameter)
+- Location: `src/judge/llmJudge.ts`
+
+#### Rubric
+
+- Standard interface for evaluation criteria
+- User-defined criteria with optional weights
+- Pass/fail thresholds configurable
+- Location: `src/judge/rubric.ts`
+
+### 6. Matcher System
+
+#### Custom Matchers
+
+- File matchers: `toHaveChangedFiles()`, `toHaveNoDeletedFiles()`
+- Tool matchers: `toHaveUsedTool()`, `toUseOnlyTools()`
+- Quality matchers: `toCompleteAllTodos()`, `toPassRubric()`
+- Cost matchers: `toStayUnderCost()`
+- Location: `src/test/matchers.ts`
+
+### 7. Reporter System
+
+#### VibeCostReporter (Terminal)
+
+- Aggregates cost across tests via task.meta
+- Prints summary at end of test run
+- Location: `src/reporters/cost.ts`
+
+#### VibeHtmlReporter (HTML)
+
+- Generates rich reports with timelines, diffs, costs
+- Lazy-loads data from RunBundle for scalability
+- Renders conversation transcripts and tool calls
+- Location: `src/reporters/html.ts`
+
+## Data Flow
+
+### Execution Flow (Single Test)
+
+```
+1. User calls runAgent({ agent, prompt })
+   ├─ ContextManager created (bundleDir allocated)
+   ├─ Hook capture started (env var: VIBE_BUNDLE_DIR)
+   └─ AgentExecution returned (thenable)
+
+2. SDK executes agent
+   ├─ SDK events → ContextManager.onSDKEvent() → events.ndjson
+   ├─ Hooks fire → Hook script → hooks.ndjson
+   └─ Watchers invoked after each PostToolUse/Notification
+
+3. Agent completes
+   ├─ ContextManager.finalize() called
+   ├─ Process hooks.ndjson (correlate tool calls)
+   ├─ Capture git state (before/after comparison)
+   ├─ Read file content (before/after)
+   ├─ Generate summary.json
+   └─ Return RunResult (lazy accessors to bundle)
+
+4. Test code uses RunResult
+   ├─ Assertions: expect(result).toHaveChangedFiles(...)
+   ├─ Judgments: await judge(result, { rubric })
+   └─ Context accumulates for next runAgent()
+
+5. Test ends
+   ├─ Metrics stored in task.meta
+   ├─ RunBundle persists on disk
+   └─ Reporters read task.meta + bundles
+```
+
+### Multi-Run Accumulation (vibeTest)
+
+```
+vibeTest('multi-run', async ({ runAgent, files, tools }) => {
+  // Run 1
+  await runAgent({ agent: a1, prompt: 'task 1' });
+  // → context.files accumulates changes
+  // → context.tools accumulates tool calls
+
+  // Run 2
+  await runAgent({ agent: a2, prompt: 'task 2' });
+  // → context.files merges new changes
+  // → context.tools appends new calls
+
+  // Access cumulative state
+  files.changed(); // All files from both runs
+  tools.all(); // All tools from both runs
+});
+```
+
+### Multi-Stage Flow (vibeWorkflow)
+
+```
+vibeWorkflow('pipeline', async (wf) => {
+  // Stage 1
+  await wf.stage('build', { agent: builder, prompt: '/build' });
+  // → wf.files tracks stage attribution
+  // → wf.timeline records stage context
+
+  // Stage 2 (inherits cumulative context)
+  await wf.stage('test', { agent: tester, prompt: '/test' });
+  // → wf.files.byStage('build') - files from stage 1
+  // → wf.files.allChanged() - all files
+
+  // Access cross-stage data
+  wf.tools.all(); // Tools with stage metadata
+  wf.timeline.events(); // Unified timeline
+});
+```
+
+## Design Principles
+
+### 1. Vitest-Native
+
+**Everything is Vitest underneath:**
+- `vibeTest` → `test.extend`
+- `vibeWorkflow` → `test.extend` (same infrastructure)
+- Custom matchers → Vitest matcher API
+- Reporters → Vitest reporter hooks
+- Lifecycle → Vitest setup/teardown
+
+**Why:** Leverage battle-tested infrastructure, no reinventing wheels.
+
+### 2. DX-First
+
+**Simple user-facing API:**
+```typescript
+// What users write
+vibeTest('test', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({ agent, prompt });
+  expect(result).toHaveChangedFiles(['src/**']);
+});
+```
+
+**What users DON'T see:**
+- Vitest fixtures
+- Hook capture scripts
+- NDJSON parsing
+- Bundle management
+- Worker communication
+
+**Why:** Reduce cognitive load, make testing feel natural.
+
+### 3. Auto-Capture
+
+**Zero artifact management:**
+- No manual git diff collection
+- No manual hook setup
+- No manual cost tracking
+- No manual file content reading
+
+**Why:** Eliminate boilerplate, ensure consistency.
+
+### 4. Hybrid Storage
+
+**Small data in memory, large data on disk:**
+- RunResult = ~50 KB (metadata only)
+- RunBundle = 10+ MB (full content)
+- Lazy loading bridges the two
+
+**Why:** Scale to 100+ parallel tests without memory bloat.
+
+### 5. Graceful Degradation
+
+**Hook failures don't fail tests:**
+- Agent execution continues normally
+- Partial data still returned
+- Warnings logged to stderr
+- `hookCaptureStatus` indicates missing data
+
+**Why:** Infrastructure issues shouldn't block productivity.
+
+## File Structure
+
+```
+src/
+├── test/
+│   ├── vibeTest.ts           # vibeTest() implementation
+│   ├── vibeWorkflow.ts       # vibeWorkflow() implementation
+│   ├── context.ts            # Fixture definitions
+│   └── matchers.ts           # Custom matchers
+├── runner/
+│   ├── agentRunner.ts        # runAgent() / stage() execution
+│   ├── agentExecution.ts     # AgentExecution class
+│   ├── contextManager.ts     # Hook capture orchestration
+│   └── runResult.ts          # RunResult lazy interface
+├── judge/
+│   ├── llmJudge.ts           # judge() implementation
+│   └── rubric.ts             # Rubric validation
+├── reporters/
+│   ├── cost.ts               # Terminal cost reporter
+│   └── html.ts               # HTML report generator
+├── artifacts/
+│   ├── bundle.ts             # RunBundle I/O utilities
+│   └── cleanup.ts            # Bundle retention policy
+├── sdk/
+│   └── bridge.ts             # SDK type imports
+└── config/
+    └── index.ts              # defineVibeConfig() helper
+```
+
+## Key Abstractions
+
+### AgentExecution (Thenable Pattern)
+
+**Why not Promise?**
+- Promises can't be extended with custom methods (watch, abort)
+- Thenable interface gives full control while staying awaitable
+
+**Benefits:**
+- `await execution` works naturally
+- `Promise.all([e1, e2])` works
+- `execution.watch()` enables reactive testing
+
+### RunBundle (Content-Addressed Storage)
+
+**Why SHA-256 hashing?**
+- Deduplicates unchanged file content
+- Integrity verification (detect corruption)
+- Fast equality comparison without reading content
+
+**Benefits:**
+- Disk space efficiency
+- Lazy loading performance
+- Reliable content addressing
+
+### ContextManager (Capture Orchestration)
+
+**Why centralize capture logic?**
+- Single source of truth for all capture
+- Consistent data across tests/workflows
+- Easy to debug capture issues
+
+**Benefits:**
+- Predictable behavior
+- Testable in isolation
+- Clean separation of concerns
+
+## See Also
+
+- [Context Manager](/explanation/architecture/context-manager) - Capture orchestration details
+- [Run Bundle](/explanation/architecture/run-bundle) - Storage structure and format
+- [Hook Integration](/explanation/architecture/hook-integration) - Claude Code hook capture
+- [Design Decisions](/explanation/design/decisions) - Why we made these choices

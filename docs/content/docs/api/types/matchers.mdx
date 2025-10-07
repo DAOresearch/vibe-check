@@ -1,0 +1,635 @@
+---
+title: Custom Matchers
+description: Vitest matchers for asserting on agent execution results
+sidebar:
+  order: 10
+---
+
+Vibe-check extends Vitest with custom matchers for common assertions on `RunResult`. These matchers provide expressive, type-safe assertions for file changes, tool usage, quality metrics, and costs.
+
+## File Matchers
+
+### toHaveChangedFiles
+
+```typescript
+expect(result).toHaveChangedFiles(paths: string | string[])
+```
+
+Assert that specific files were changed (supports glob patterns).
+
+**Parameters:**
+- `paths` - File path(s) or glob pattern(s)
+
+**Example:**
+
+```typescript
+vibeTest('file changes', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement authentication'
+  });
+
+  // Single file
+  expect(result).toHaveChangedFiles('src/auth/login.ts');
+
+  // Multiple files
+  expect(result).toHaveChangedFiles([
+    'src/auth/login.ts',
+    'src/auth/register.ts'
+  ]);
+
+  // Glob patterns
+  expect(result).toHaveChangedFiles('src/auth/**/*.ts');
+
+  // Multiple patterns
+  expect(result).toHaveChangedFiles([
+    'src/auth/**',
+    'tests/auth/**'
+  ]);
+});
+```
+
+**Negation:**
+
+```typescript
+// Assert file was NOT changed
+expect(result).not.toHaveChangedFiles('src/config.ts');
+```
+
+---
+
+### toHaveNoDeletedFiles
+
+```typescript
+expect(result).toHaveNoDeletedFiles()
+```
+
+Assert that no files were deleted during execution.
+
+**Example:**
+
+```typescript
+vibeTest('no deletions', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/refactor code'
+  });
+
+  expect(result).toHaveNoDeletedFiles();
+});
+```
+
+**Use Cases:**
+- Refactoring (shouldn't delete files)
+- Additive changes only
+- Safety checks in production workflows
+
+---
+
+## Tool Matchers
+
+### toHaveUsedTool
+
+```typescript
+expect(result).toHaveUsedTool(name: string, options?: {
+  min?: number;
+  max?: number;
+  exactly?: number;
+})
+```
+
+Assert that a specific tool was used.
+
+**Parameters:**
+- `name` - Tool name (e.g., 'Edit', 'Bash', 'Read')
+- `options.min` - Minimum usage count
+- `options.max` - Maximum usage count
+- `options.exactly` - Exact usage count
+
+**Examples:**
+
+```typescript
+vibeTest('tool usage', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement feature'
+  });
+
+  // Tool was used at least once
+  expect(result).toHaveUsedTool('Edit');
+
+  // Minimum usage
+  expect(result).toHaveUsedTool('Edit', { min: 3 });
+
+  // Maximum usage
+  expect(result).toHaveUsedTool('Bash', { max: 5 });
+
+  // Exact usage
+  expect(result).toHaveUsedTool('Write', { exactly: 2 });
+
+  // Range
+  expect(result).toHaveUsedTool('Read', { min: 1, max: 10 });
+});
+```
+
+**Negation:**
+
+```typescript
+// Tool was NOT used
+expect(result).not.toHaveUsedTool('Delete');
+```
+
+---
+
+### toUseOnlyTools
+
+```typescript
+expect(result).toUseOnlyTools(allowedTools: string[])
+```
+
+Assert that only specified tools were used (tool usage restriction).
+
+**Parameters:**
+- `allowedTools` - Array of allowed tool names
+
+**Example:**
+
+```typescript
+vibeTest('read-only operations', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/analyze codebase (read-only)'
+  });
+
+  // Only read tools allowed
+  expect(result).toUseOnlyTools(['Read', 'Glob', 'Grep']);
+});
+```
+
+**Example - No Modifications:**
+
+```typescript
+vibeTest('no file modifications', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/find security issues'
+  });
+
+  // No write/edit tools
+  const allowedTools = ['Read', 'Glob', 'Grep', 'Bash'];
+  expect(result).toUseOnlyTools(allowedTools);
+});
+```
+
+**Negation:**
+
+```typescript
+// At least one disallowed tool was used
+expect(result).not.toUseOnlyTools(['Read', 'Grep']);
+```
+
+---
+
+## Quality Matchers
+
+### toCompleteAllTodos
+
+```typescript
+expect(result).toCompleteAllTodos()
+```
+
+Assert that all TODO items are completed.
+
+**Example:**
+
+```typescript
+vibeTest('task completion', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement all features'
+  });
+
+  expect(result).toCompleteAllTodos();
+});
+```
+
+**Behavior:**
+- Passes if all TODOs have `status: 'completed'`
+- Fails if any TODO is `pending` or `in_progress`
+- Passes if there are no TODOs
+
+**Use Cases:**
+- Ensure agent finished all tasks
+- Quality gates for workflows
+- Completion validation
+
+---
+
+### toHaveNoErrorsInLogs
+
+```typescript
+expect(result).toHaveNoErrorsInLogs()
+```
+
+Assert that logs contain no error messages.
+
+**Example:**
+
+```typescript
+vibeTest('clean execution', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/build and test'
+  });
+
+  expect(result).toHaveNoErrorsInLogs();
+});
+```
+
+**Detection:**
+- Case-insensitive search for: "error", "failed", "exception"
+- Ignores "errorHandler" and similar code references
+
+**Negation:**
+
+```typescript
+// Expect errors in logs (for testing error handling)
+expect(result).not.toHaveNoErrorsInLogs();
+```
+
+---
+
+### toPassRubric
+
+```typescript
+expect(result).toPassRubric(rubric: Rubric, options?: {
+  throwOnFail?: boolean;
+})
+```
+
+Assert that execution passes LLM-based evaluation with a rubric.
+
+**Parameters:**
+- `rubric` - Evaluation criteria
+- `options.throwOnFail` - Throw on judgment failure (default: false)
+
+**Example:**
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('quality evaluation', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement login'
+  });
+
+  const rubric = {
+    name: 'Login Quality',
+    criteria: [
+      { name: 'security', description: 'Uses bcrypt and JWT' },
+      { name: 'error-handling', description: 'Handles errors gracefully' }
+    ],
+    passingThreshold: 0.8
+  };
+
+  expect(result).toPassRubric(rubric);
+});
+```
+
+**With Custom Instructions:**
+
+```typescript
+expect(result).toPassRubric(rubric, {
+  instructions: 'Focus on production readiness and edge case handling'
+});
+```
+
+**See Also:**
+- [Rubric →](/api/types/rubric/) - Rubric interface
+- [Using Judge →](/guides/evaluation/using-judge/) - Judge guide
+
+---
+
+## Cost Matchers
+
+### toStayUnderCost
+
+```typescript
+expect(result).toStayUnderCost(maxUsd: number)
+```
+
+Assert that execution cost is below a threshold.
+
+**Parameters:**
+- `maxUsd` - Maximum cost in USD
+
+**Example:**
+
+```typescript
+vibeTest('cost budget', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/simple task',
+    model: 'claude-sonnet-4-5-20250929'
+  });
+
+  // Must cost less than $0.10
+  expect(result).toStayUnderCost(0.10);
+});
+```
+
+**Use Cases:**
+- Enforce cost budgets
+- Prevent expensive operations
+- Cost optimization validation
+
+**Negation:**
+
+```typescript
+// Cost exceeds threshold (useful for testing)
+expect(result).not.toStayUnderCost(0.01);
+```
+
+---
+
+## Combining Matchers
+
+Matchers can be combined for comprehensive assertions:
+
+### Example - Complete Quality Check
+
+```typescript
+vibeTest('comprehensive quality check', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement user registration'
+  });
+
+  // File assertions
+  expect(result).toHaveChangedFiles(['src/auth/**', 'tests/auth/**']);
+  expect(result).toHaveNoDeletedFiles();
+
+  // Tool assertions
+  expect(result).toHaveUsedTool('Edit', { min: 3 });
+  expect(result).not.toHaveUsedTool('Delete');
+
+  // Quality assertions
+  expect(result).toCompleteAllTodos();
+  expect(result).toHaveNoErrorsInLogs();
+
+  // Cost assertion
+  expect(result).toStayUnderCost(0.50);
+
+  // Rubric-based evaluation
+  const rubric = {
+    name: 'Registration Quality',
+    criteria: [
+      { name: 'security', description: 'Secure password hashing' },
+      { name: 'validation', description: 'Input validation' },
+      { name: 'tests', description: 'Test coverage' }
+    ]
+  };
+  expect(result).toPassRubric(rubric);
+});
+```
+
+### Example - Workflow Stage Validation
+
+```typescript
+vibeWorkflow('deployment', async (wf) => {
+  const build = await wf.stage('build', { prompt: '/build' });
+
+  // Validate build stage
+  expect(build).toHaveChangedFiles('dist/**');
+  expect(build).toHaveNoErrorsInLogs();
+  expect(build).toCompleteAllTodos();
+
+  const test = await wf.stage('test', { prompt: '/test' });
+
+  // Validate test stage
+  expect(test).toHaveUsedTool('Bash', { min: 1 });
+  expect(test).toHaveNoErrorsInLogs();
+
+  const deploy = await wf.stage('deploy', { prompt: '/deploy' });
+
+  // Validate deploy stage
+  expect(deploy).toCompleteAllTodos();
+  expect(deploy).toStayUnderCost(0.25);
+});
+```
+
+---
+
+## Snapshot Matchers
+
+Vibe-check extends Vitest's snapshot matchers for file and tool assertions:
+
+### toMatchSnapshot
+
+```typescript
+// Snapshot file changes
+expect(result.files.changed()).toMatchSnapshot();
+
+// Snapshot tool usage
+expect(result.tools.all()).toMatchSnapshot();
+
+// Snapshot file stats
+expect(result.files.stats()).toMatchSnapshot();
+```
+
+**Example:**
+
+```typescript
+vibeTest('file changes snapshot', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/refactor authentication'
+  });
+
+  const authFiles = result.files.filter('src/auth/**');
+  expect(authFiles.map(f => f.path)).toMatchSnapshot();
+});
+```
+
+---
+
+## Custom Matcher Patterns
+
+### Pattern - File Change Validation
+
+```typescript
+vibeTest('validate file changes', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/refactor' });
+
+  // Must change implementation files
+  expect(result).toHaveChangedFiles('src/**/*.ts');
+
+  // Must not delete files
+  expect(result).toHaveNoDeletedFiles();
+
+  // Must not modify config
+  expect(result).not.toHaveChangedFiles('*.config.{js,ts}');
+});
+```
+
+### Pattern - Tool Usage Restrictions
+
+```typescript
+vibeTest('read-only analysis', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/analyze security vulnerabilities'
+  });
+
+  // Only allow read operations
+  expect(result).toUseOnlyTools(['Read', 'Glob', 'Grep']);
+
+  // Verify tools were actually used
+  expect(result).toHaveUsedTool('Grep', { min: 1 });
+});
+```
+
+### Pattern - Quality Gates
+
+```typescript
+vibeTest('production quality gate', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement payment processing'
+  });
+
+  // File quality
+  expect(result).toHaveChangedFiles(['src/payments/**', 'tests/payments/**']);
+
+  // Execution quality
+  expect(result).toCompleteAllTodos();
+  expect(result).toHaveNoErrorsInLogs();
+
+  // Cost quality
+  expect(result).toStayUnderCost(1.0);
+
+  // Code quality (LLM judge)
+  const rubric = {
+    name: 'Payment Security',
+    criteria: [
+      { name: 'pci-compliance', description: 'PCI DSS compliant', threshold: 1.0 },
+      { name: 'error-handling', description: 'Robust error handling', weight: 3 }
+    ],
+    passingThreshold: 0.9
+  };
+  expect(result).toPassRubric(rubric);
+});
+```
+
+### Pattern - Cost Optimization
+
+```typescript
+vibeTest.each([
+  { model: 'claude-haiku-4-20250514', maxCost: 0.05 },
+  { model: 'claude-sonnet-4-5-20250929', maxCost: 0.10 },
+  { model: 'claude-opus-4-20250514', maxCost: 0.50 }
+])('cost for $model', async ({ model, maxCost, runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/simple formatting task',
+    model
+  });
+
+  expect(result).toStayUnderCost(maxCost);
+  expect(result).toCompleteAllTodos();
+});
+```
+
+---
+
+## TypeScript Types
+
+All custom matchers are fully typed for TypeScript:
+
+```typescript
+import { expect } from 'vitest';
+import type { RunResult, Rubric } from '@dao/vibe-check';
+
+declare module 'vitest' {
+  interface Assertion<T = any> {
+    toHaveChangedFiles(paths: string | string[]): T;
+    toHaveNoDeletedFiles(): T;
+    toHaveUsedTool(name: string, options?: {
+      min?: number;
+      max?: number;
+      exactly?: number;
+    }): T;
+    toUseOnlyTools(allowedTools: string[]): T;
+    toCompleteAllTodos(): T;
+    toHaveNoErrorsInLogs(): T;
+    toPassRubric(rubric: Rubric, options?: {
+      throwOnFail?: boolean;
+    }): Promise<T>;
+    toStayUnderCost(maxUsd: number): T;
+  }
+}
+```
+
+**Usage with TypeScript:**
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+import type { RunResult } from '@dao/vibe-check';
+
+vibeTest('typed matchers', async ({ runAgent, expect }) => {
+  const result: RunResult = await runAgent({ prompt: '/task' });
+
+  // Full autocomplete and type checking
+  expect(result).toHaveChangedFiles('src/**');
+  expect(result).toHaveUsedTool('Edit', { min: 1 });
+  expect(result).toStayUnderCost(0.25);
+});
+```
+
+---
+
+## Matcher Descriptions
+
+When assertions fail, matchers provide helpful error messages:
+
+### toHaveChangedFiles
+
+```
+Expected files matching "src/auth/**" to be changed
+Received: ["src/index.ts", "src/config.ts"]
+```
+
+### toHaveUsedTool
+
+```
+Expected tool "Edit" to be used at least 3 times
+Received: 1 usage
+```
+
+### toUseOnlyTools
+
+```
+Expected only tools ["Read", "Grep"] to be used
+Received unauthorized tool: "Write"
+```
+
+### toCompleteAllTodos
+
+```
+Expected all TODOs to be completed
+Incomplete TODOs:
+  - "Run tests" (status: in_progress)
+  - "Fix linting" (status: pending)
+```
+
+### toHaveNoErrorsInLogs
+
+```
+Expected no errors in logs
+Found errors:
+  - "Error: Failed to connect to database"
+  - "TypeError: Cannot read property 'id' of undefined"
+```
+
+### toStayUnderCost
+
+```
+Expected cost to stay under $0.10
+Received: $0.15
+```
+
+---
+
+## See Also
+
+- [RunResult →](/api/types/run-result/) - Result interface matchers operate on
+- [Rubric →](/api/types/rubric/) - Rubric interface for toPassRubric
+- [Vitest Matchers →](https://vitest.dev/api/expect.html) - Built-in Vitest matchers
+- [Testing Patterns →](/guides/testing/assertion-patterns/) - Common assertion patterns

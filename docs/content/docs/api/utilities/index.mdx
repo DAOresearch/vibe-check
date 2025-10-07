@@ -1,0 +1,185 @@
+---
+title: Utilities Reference
+description: Helper functions for configuration and test setup
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Helper functions and utilities for configuring vibe-check.
+
+## Available Utilities
+
+<CardGrid>
+  <Card title="defineVibeConfig" icon="seti:config">
+    [Configure framework defaults](/api/utilities/config/) including reporters, globals, and agent settings.
+  </Card>
+</CardGrid>
+
+---
+
+## Configuration
+
+### [defineVibeConfig](/api/utilities/config/)
+
+The primary configuration function for setting up vibe-check defaults, reporters, and global options.
+
+**Basic usage:**
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check';
+
+export default defineVibeConfig({
+  reporters: ['cost', 'html'],
+  defaults: {
+    workspace: '/path/to/repo',
+    maxTurns: 10
+  }
+});
+```
+
+**What you can configure:**
+- **Reporters** - Enable cost tracking and HTML report generation
+- **Defaults** - Global agent configuration (workspace, model, maxTurns)
+- **HTML reports** - Customize report output directory and styling
+- **Bundle cleanup** - Configure artifact retention policies
+
+**Configuration file location:**
+- `vitest.config.ts` (recommended)
+- `vibe.config.ts` (alternative)
+
+---
+
+## Usage Patterns
+
+### Minimal Configuration
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check';
+
+export default defineVibeConfig({
+  reporters: ['cost']
+});
+```
+
+### Full Configuration
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check';
+
+export default defineVibeConfig({
+  // Enable both reporters
+  reporters: ['cost', 'html'],
+
+  // Global agent defaults
+  defaults: {
+    workspace: '/Users/you/projects/my-app',
+    model: 'claude-sonnet-4',
+    maxTurns: 10
+  },
+
+  // HTML report configuration
+  htmlReport: {
+    outputDir: './vibe-reports',
+    title: 'My Project Agent Tests'
+  },
+
+  // Bundle cleanup policy
+  bundleCleanup: {
+    retentionDays: 7,
+    enabled: true
+  }
+});
+```
+
+### Environment-Specific Configuration
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check';
+
+const isCI = process.env.CI === 'true';
+
+export default defineVibeConfig({
+  reporters: isCI ? ['html'] : ['cost'],
+
+  defaults: {
+    workspace: isCI ? '/workspace/repo' : '/Users/you/repo',
+    maxTurns: isCI ? 5 : 10  // Stricter limits in CI
+  },
+
+  bundleCleanup: {
+    retentionDays: isCI ? 1 : 30,
+    enabled: true
+  }
+});
+```
+
+---
+
+## Configuration Options Reference
+
+### Reporters
+```typescript
+reporters?: ('cost' | 'html')[]
+```
+- `'cost'` - Terminal cost summary reporter
+- `'html'` - Rich HTML report with transcripts, diffs, timelines
+
+### Defaults
+```typescript
+defaults?: {
+  workspace?: string;      // Default repo path
+  model?: string;          // Default Claude model
+  maxTurns?: number;       // Default turn limit
+  hooks?: HookConfig;      // Hook configuration
+  mcpServers?: McpServerConfig[];  // MCP servers
+}
+```
+
+### HTML Report Options
+```typescript
+htmlReport?: {
+  outputDir?: string;      // Report output directory
+  title?: string;          // Report title
+  theme?: 'light' | 'dark' | 'auto';  // Report theme
+}
+```
+
+### Bundle Cleanup Policy
+```typescript
+bundleCleanup?: {
+  retentionDays?: number;  // Days to keep bundles
+  enabled?: boolean;       // Enable cleanup
+  path?: string;           // Bundle storage path
+}
+```
+
+---
+
+## TypeScript Support
+
+Full TypeScript support with autocomplete:
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check';
+import type { VibeConfig } from '@dao/vibe-check';
+
+const config: VibeConfig = defineVibeConfig({
+  // TypeScript will validate all options
+  reporters: ['cost', 'html'],  // ✅ Valid
+  // reporters: ['invalid'],    // ❌ Type error
+});
+
+export default config;
+```
+
+---
+
+## Related Documentation
+
+### API Reference
+- [Configuration Types](/api/types/configuration/) - All configuration type definitions
+- [Core APIs](/api/) - Functions that use configuration
+
+### Guides
+- [Cost Optimization](/guides/advanced/cost-optimization/) - Configure cost-effective settings
+- [Bundle Cleanup](/guides/advanced/bundle-cleanup/) - Configure retention policies
+
+### Tutorials
+- [Installation](/getting-started/installation/) - Initial configuration setup
+- [Quickstart](/getting-started/quickstart/) - Basic configuration examples

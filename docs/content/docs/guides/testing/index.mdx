@@ -1,0 +1,131 @@
+---
+title: Testing Guides
+description: Patterns and techniques for testing Claude Code agents
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Learn how to write effective tests for your Claude Code agents using vibe-check's powerful testing features.
+
+## Available Guides
+
+<CardGrid>
+  <Card title="Reactive Watchers" icon="seti:todo">
+    [Monitor agent execution in real-time](/guides/testing/reactive-watchers/) with fail-fast assertions using `AgentExecution.watch()`.
+  </Card>
+
+  <Card title="Cumulative State" icon="document">
+    [Track state across multiple runs](/guides/testing/cumulative-state/) to build comprehensive test scenarios.
+  </Card>
+
+  <Card title="Custom Matchers" icon="approve-check">
+    [Use specialized matchers](/guides/testing/custom-matchers/) for files, tools, quality checks, and cost constraints.
+  </Card>
+
+  <Card title="Matrix Testing" icon="puzzle">
+    [Generate Cartesian product tests](/guides/testing/matrix-testing/) to benchmark models and configurations.
+  </Card>
+</CardGrid>
+
+---
+
+## Overview
+
+Testing Claude Code agents requires specialized tools and patterns. These guides cover:
+
+- **Real-time monitoring** - Watch execution progress and fail fast on errors
+- **Multi-run tracking** - Aggregate state across multiple agent invocations
+- **Assertion patterns** - Use custom matchers for common validation scenarios
+- **Benchmarking** - Compare performance across models and configurations
+
+---
+
+## Guide Details
+
+### [Reactive Watchers](/guides/testing/reactive-watchers/)
+
+Monitor agent execution in real-time and implement fail-fast assertions.
+
+**You'll learn:**
+- Using `AgentExecution.watch()` for real-time monitoring
+- Accessing partial results during execution
+- Implementing early termination conditions
+- Detecting errors and anomalies as they happen
+
+**Use cases:**
+- Failing fast on file deletions
+- Monitoring tool usage patterns
+- Budget enforcement during execution
+- Real-time quality gates
+
+---
+
+### [Cumulative State](/guides/testing/cumulative-state/)
+
+Track and aggregate state across multiple agent runs for comprehensive testing.
+
+**You'll learn:**
+- Building cumulative context objects
+- Aggregating results from multiple runs
+- Cross-run state analysis
+- Persistent state management
+
+**Use cases:**
+- Multi-step test workflows
+- Progressive refinement testing
+- Long-running automation validation
+- State evolution tracking
+
+---
+
+### [Custom Matchers](/guides/testing/custom-matchers/)
+
+Master all available matchers for comprehensive test assertions.
+
+**You'll learn:**
+- File-based matchers (`toHaveChangedFiles`, `toHaveNoDeletedFiles`)
+- Tool-based matchers (`toHaveUsedTool`, `toUseOnlyTools`)
+- Quality matchers (`toCompleteAllTodos`, `toPassRubric`)
+- Cost matchers (`toStayUnderCost`)
+- Chaining matchers for complex assertions
+
+**Use cases:**
+- Validating file operations
+- Enforcing tool usage policies
+- Quality gates with LLM judges
+- Budget enforcement
+
+---
+
+### [Matrix Testing](/guides/testing/matrix-testing/)
+
+Generate Cartesian product tests for systematic model and configuration benchmarking.
+
+**You'll learn:**
+- Using `defineTestSuite` for test generation
+- Creating configuration matrices
+- Comparing model performance
+- Analyzing benchmark results
+
+**Use cases:**
+- Model comparison (Sonnet vs Opus vs Haiku)
+- Configuration optimization
+- Regression testing across versions
+- Performance profiling
+
+---
+
+## Related Documentation
+
+### Tutorials
+- [Your First Test](/getting-started/first-test/) - Step-by-step test creation
+- [Your First Evaluation](/getting-started/first-evaluation/) - Benchmarking basics
+
+### API Reference
+- [vibeTest](/api/core/vibetest/) - Test function API
+- [RunResult](/api/types/run-result/) - Result inspection interface
+- [Custom Matchers](/api/types/matchers/) - Complete matcher reference
+
+### Concepts
+- [Auto-Capture](/explanation/concepts/auto-capture/) - How context is captured automatically
+- [Lazy Loading](/explanation/concepts/lazy-loading/) - Memory-efficient file access
