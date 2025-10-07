@@ -1,0 +1,799 @@
+---
+title: Designing Rubrics
+description: Create effective evaluation rubrics for measuring code quality, correctness, and compliance
+sidebar:
+  order: 2
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers best practices for designing effective evaluation rubrics. You'll learn how to create clear criteria, set appropriate weights and thresholds, and avoid common pitfalls.
+
+<Aside type="tip">
+  **Prerequisites:** This guide assumes you understand basic judge usage. If you're new to judges, start with [Using Judge →](/guides/evaluation/using-judge/).
+</Aside>
+
+## Rubric Design Principles
+
+### 1. Specific and Measurable
+
+Criteria should be specific enough that an LLM can evaluate them objectively:
+
+```typescript
+// ✅ Good: Specific, measurable criteria
+const rubric = {
+  name: 'API Implementation',
+  criteria: [
+    {
+      name: 'http_methods',
+      description: 'All CRUD operations use correct HTTP methods (GET, POST, PUT, DELETE)'
+    },
+    {
+      name: 'status_codes',
+      description: 'Responses use appropriate HTTP status codes (200, 201, 400, 404, 500)'
+    },
+    {
+      name: 'request_validation',
+      description: 'All request bodies are validated using Zod schemas'
+    }
+  ]
+};
+
+// ❌ Bad: Vague, subjective criteria
+const rubric = {
+  name: 'API Implementation',
+  criteria: [
+    {
+      name: 'quality',
+      description: 'API is good quality'
+    },
+    {
+      name: 'proper',
+      description: 'Uses proper patterns'
+    }
+  ]
+};
+```
+
+### 2. Independent Criteria
+
+Each criterion should evaluate a distinct aspect:
+
+```typescript
+// ✅ Good: Independent criteria
+criteria: [
+  {
+    name: 'functionality',
+    description: 'Feature works as specified in requirements'
+  },
+  {
+    name: 'error_handling',
+    description: 'Errors are caught and handled gracefully'
+  },
+  {
+    name: 'testing',
+    description: 'Has unit tests with >80% coverage'
+  }
+]
+
+// ❌ Bad: Overlapping criteria
+criteria: [
+  {
+    name: 'works',
+    description: 'Code works correctly'
+  },
+  {
+    name: 'no_bugs',
+    description: 'Code has no bugs'  // Overlaps with 'works'
+  }
+]
+```
+
+### 3. Actionable Feedback
+
+Criteria should guide improvement:
+
+```typescript
+// ✅ Good: Actionable criteria
+criteria: [
+  {
+    name: 'type_safety',
+    description: 'All functions have explicit TypeScript type annotations for parameters and return values'
+  },
+  {
+    name: 'error_messages',
+    description: 'Error messages include context (what failed, why, and how to fix)'
+  }
+]
+
+// ❌ Bad: Non-actionable criteria
+criteria: [
+  {
+    name: 'better',
+    description: 'Code should be better'  // How? What aspect?
+  }
+]
+```
+
+---
+
+## Criterion Components
+
+### Name
+
+Use clear, descriptive names that identify what is being evaluated:
+
+```typescript
+// ✅ Good: Clear, descriptive names
+name: 'input_validation'
+name: 'authentication_security'
+name: 'test_coverage'
+name: 'documentation_completeness'
+
+// ❌ Bad: Unclear names
+name: 'check1'
+name: 'quality'
+name: 'stuff'
+```
+
+### Description
+
+Write descriptions that an LLM can use to evaluate objectively:
+
+```typescript
+// ✅ Good: Specific, objective descriptions
+{
+  name: 'input_validation',
+  description: 'All user inputs are validated before use. String inputs use Zod schemas. Numeric inputs check ranges. No raw user input is used in SQL queries or shell commands.'
+}
+
+// ❌ Bad: Vague descriptions
+{
+  name: 'input_validation',
+  description: 'Validates inputs properly'
+}
+```
+
+### Weight (Optional)
+
+Use weights to prioritize important criteria:
+
+```typescript
+const rubric = {
+  name: 'Security Review',
+  criteria: [
+    {
+      name: 'authentication',
+      description: 'Proper authentication checks on all protected routes',
+      weight: 0.4  // 40% of overall score - most important
+    },
+    {
+      name: 'input_sanitization',
+      description: 'All inputs are sanitized to prevent XSS and SQL injection',
+      weight: 0.3  // 30% of overall score
+    },
+    {
+      name: 'secrets_management',
+      description: 'No secrets hardcoded in source code',
+      weight: 0.2  // 20% of overall score
+    },
+    {
+      name: 'dependency_audit',
+      description: 'No known vulnerabilities in dependencies',
+      weight: 0.1  // 10% of overall score - least critical
+    }
+  ]
+};
+```
+
+<Aside type="note">
+  **Default Behavior:** If weights are omitted, all criteria have equal weight. Make sure weights sum to 1.0 for clarity.
+</Aside>
+
+### Threshold (Optional)
+
+Set minimum passing scores for individual criteria:
+
+```typescript
+const rubric = {
+  name: 'Production Readiness',
+  criteria: [
+    {
+      name: 'correctness',
+      description: 'Feature works correctly for all specified use cases',
+      threshold: 0.9  // Must score 90%+ to pass this criterion
+    },
+    {
+      name: 'documentation',
+      description: 'Functions have JSDoc comments explaining parameters and return values',
+      threshold: 0.6  // Only needs 60%+ (less critical)
+    }
+  ],
+  passThreshold: 0.75  // Overall pass threshold
+};
+```
+
+**How thresholds work:**
+1. Each criterion gets a score (0-1)
+2. Criterion passes if score ≥ threshold (default: 0.5)
+3. Overall score is weighted average of criterion scores
+4. Overall passes if score ≥ passThreshold (default: 0.7)
+
+---
+
+## Common Rubric Patterns
+
+### Code Quality Rubric
+
+```typescript
+const codeQualityRubric = {
+  name: 'Code Quality',
+  criteria: [
+    {
+      name: 'readability',
+      description: 'Code is easy to read with clear variable names, consistent formatting, and logical organization',
+      weight: 0.25
+    },
+    {
+      name: 'complexity',
+      description: 'Functions are small and focused (< 50 lines). Cyclomatic complexity is low. No deeply nested conditionals (max 3 levels).',
+      weight: 0.25
+    },
+    {
+      name: 'duplication',
+      description: 'No significant code duplication. Common logic is extracted into reusable functions.',
+      weight: 0.2
+    },
+    {
+      name: 'naming',
+      description: 'Variables, functions, and types have descriptive names that explain their purpose. Boolean variables start with is/has/should.',
+      weight: 0.15
+    },
+    {
+      name: 'comments',
+      description: 'Complex logic has explanatory comments. Public functions have JSDoc comments.',
+      weight: 0.15
+    }
+  ],
+  passThreshold: 0.75
+};
+```
+
+### Security Rubric
+
+```typescript
+const securityRubric = {
+  name: 'Security Review',
+  criteria: [
+    {
+      name: 'input_validation',
+      description: 'All user inputs are validated and sanitized. No raw user input in SQL/shell commands. Email and URL formats are validated.',
+      weight: 0.3,
+      threshold: 0.9  // Critical - must score high
+    },
+    {
+      name: 'authentication',
+      description: 'Protected routes check authentication. JWT tokens are verified. Sessions expire appropriately.',
+      weight: 0.25,
+      threshold: 0.9
+    },
+    {
+      name: 'authorization',
+      description: 'Users can only access resources they own. Role-based access control is enforced.',
+      weight: 0.2,
+      threshold: 0.8
+    },
+    {
+      name: 'secrets',
+      description: 'No hardcoded secrets, API keys, or passwords. Environment variables are used.',
+      weight: 0.15,
+      threshold: 0.95  // Zero tolerance
+    },
+    {
+      name: 'dependencies',
+      description: 'No known security vulnerabilities in npm packages. Dependencies are up to date.',
+      weight: 0.1
+    }
+  ],
+  passThreshold: 0.85  // High bar for security
+};
+```
+
+### Testing Rubric
+
+```typescript
+const testingRubric = {
+  name: 'Test Quality',
+  criteria: [
+    {
+      name: 'coverage',
+      description: 'Test coverage is >80% for statements, branches, and functions',
+      weight: 0.3
+    },
+    {
+      name: 'edge_cases',
+      description: 'Tests cover edge cases: empty inputs, null values, boundary conditions, error scenarios',
+      weight: 0.25
+    },
+    {
+      name: 'assertions',
+      description: 'Tests have clear assertions. Each test verifies one behavior. Assertions check both success and failure cases.',
+      weight: 0.2
+    },
+    {
+      name: 'test_structure',
+      description: 'Tests follow AAA pattern (Arrange, Act, Assert). Test names clearly describe what is being tested.',
+      weight: 0.15
+    },
+    {
+      name: 'mocking',
+      description: 'External dependencies (APIs, databases) are mocked. Tests run independently.',
+      weight: 0.1
+    }
+  ],
+  passThreshold: 0.7
+};
+```
+
+### Accessibility Rubric
+
+```typescript
+const accessibilityRubric = {
+  name: 'Accessibility (WCAG 2.1 AA)',
+  criteria: [
+    {
+      name: 'semantic_html',
+      description: 'Uses semantic HTML5 elements (header, nav, main, article, aside, footer). Headings follow logical hierarchy (h1 > h2 > h3).',
+      weight: 0.25
+    },
+    {
+      name: 'aria',
+      description: 'ARIA labels on interactive elements. aria-live regions for dynamic content. No redundant or incorrect ARIA.',
+      weight: 0.2
+    },
+    {
+      name: 'keyboard',
+      description: 'All interactive elements are keyboard accessible. Focus order is logical. No keyboard traps. Visible focus indicators.',
+      weight: 0.25
+    },
+    {
+      name: 'alt_text',
+      description: 'All images have descriptive alt text. Decorative images use empty alt="". Complex images have detailed descriptions.',
+      weight: 0.15
+    },
+    {
+      name: 'color_contrast',
+      description: 'Text has sufficient color contrast (4.5:1 for normal text, 3:1 for large text). Color is not the only visual indicator.',
+      weight: 0.15
+    }
+  ],
+  passThreshold: 0.9  // High standard for accessibility
+};
+```
+
+### Documentation Rubric
+
+```typescript
+const documentationRubric = {
+  name: 'Documentation Quality',
+  criteria: [
+    {
+      name: 'readme',
+      description: 'README includes: project description, installation steps, usage examples, and API documentation',
+      weight: 0.3
+    },
+    {
+      name: 'jsdoc',
+      description: 'All public functions have JSDoc comments with parameter descriptions, return types, and examples',
+      weight: 0.25
+    },
+    {
+      name: 'inline_comments',
+      description: 'Complex algorithms have explanatory comments. Comments explain WHY, not WHAT.',
+      weight: 0.2
+    },
+    {
+      name: 'type_documentation',
+      description: 'TypeScript types/interfaces are documented. Type aliases have JSDoc explaining their purpose.',
+      weight: 0.15
+    },
+    {
+      name: 'examples',
+      description: 'Code includes usage examples. Edge cases are documented.',
+      weight: 0.1
+    }
+  ],
+  passThreshold: 0.7
+};
+```
+
+---
+
+## Rubric Granularity
+
+### Coarse-Grained (Few Criteria)
+
+Best for high-level quality gates:
+
+```typescript
+// ✅ Good for: Quick quality check, high-level review
+const coarseRubric = {
+  name: 'Ready for Review',
+  criteria: [
+    {
+      name: 'functionality',
+      description: 'Feature works correctly and meets all requirements'
+    },
+    {
+      name: 'quality',
+      description: 'Code is readable, well-structured, and follows best practices'
+    },
+    {
+      name: 'safety',
+      description: 'No security issues, proper error handling, and adequate testing'
+    }
+  ]
+};
+```
+
+**Pros:**
+- Fast evaluation (fewer criteria = less tokens)
+- Good for quick checks
+- Less detailed feedback
+
+**Cons:**
+- Less actionable feedback
+- Harder to debug failures
+- May miss specific issues
+
+### Fine-Grained (Many Criteria)
+
+Best for detailed code reviews:
+
+```typescript
+// ✅ Good for: Detailed review, specific feedback
+const fineGrainedRubric = {
+  name: 'Detailed Code Review',
+  criteria: [
+    { name: 'functionality', description: 'Feature works for specified use cases' },
+    { name: 'edge_cases', description: 'Edge cases are handled' },
+    { name: 'error_handling', description: 'Errors are caught and logged' },
+    { name: 'type_safety', description: 'Proper TypeScript types throughout' },
+    { name: 'naming', description: 'Clear, descriptive variable names' },
+    { name: 'complexity', description: 'Functions are small and focused' },
+    { name: 'duplication', description: 'No code duplication' },
+    { name: 'testing', description: 'Unit tests with good coverage' },
+    { name: 'security', description: 'No security vulnerabilities' },
+    { name: 'performance', description: 'No obvious performance issues' }
+  ]
+};
+```
+
+**Pros:**
+- Detailed, actionable feedback
+- Easy to identify specific issues
+- Good for learning/improvement
+
+**Cons:**
+- Slower evaluation (more criteria = more tokens)
+- More expensive
+- Can be overwhelming
+
+### Recommended Approach
+
+Use 3-7 criteria for most rubrics:
+
+```typescript
+// ✅ Balanced: Specific enough, not overwhelming
+const balancedRubric = {
+  name: 'Feature Implementation',
+  criteria: [
+    { name: 'correctness', description: '...' },        // 1
+    { name: 'error_handling', description: '...' },     // 2
+    { name: 'code_quality', description: '...' },       // 3
+    { name: 'testing', description: '...' },            // 4
+    { name: 'security', description: '...' }            // 5
+  ]
+};
+```
+
+---
+
+## Setting Thresholds
+
+### Overall Pass Threshold
+
+Set based on how strict you want the evaluation:
+
+```typescript
+// Permissive (good for experimental features)
+passThreshold: 0.6  // 60% score needed to pass
+
+// Moderate (good for most features)
+passThreshold: 0.7  // 70% score needed to pass
+
+// Strict (good for critical features)
+passThreshold: 0.8  // 80% score needed to pass
+
+// Very strict (good for security/safety)
+passThreshold: 0.9  // 90% score needed to pass
+```
+
+### Per-Criterion Thresholds
+
+Set higher thresholds for critical criteria:
+
+```typescript
+const rubric = {
+  name: 'Payment Processing',
+  criteria: [
+    {
+      name: 'transaction_security',
+      description: 'Payment data is encrypted and PCI compliant',
+      weight: 0.5,
+      threshold: 0.95  // ✅ Critical - needs 95%+
+    },
+    {
+      name: 'error_recovery',
+      description: 'Failed transactions are rolled back properly',
+      weight: 0.3,
+      threshold: 0.9   // ✅ Important - needs 90%+
+    },
+    {
+      name: 'logging',
+      description: 'Transactions are logged for audit',
+      weight: 0.2,
+      threshold: 0.6   // ✅ Nice to have - needs 60%+
+    }
+  ],
+  passThreshold: 0.85
+};
+```
+
+---
+
+## Domain-Specific Rubrics
+
+### Frontend Components
+
+```typescript
+const frontendRubric = {
+  name: 'React Component Quality',
+  criteria: [
+    {
+      name: 'component_structure',
+      description: 'Component follows React best practices: functional component, hooks, proper prop types'
+    },
+    {
+      name: 'accessibility',
+      description: 'Keyboard accessible, ARIA labels, semantic HTML'
+    },
+    {
+      name: 'styling',
+      description: 'Responsive design, consistent with design system'
+    },
+    {
+      name: 'state_management',
+      description: 'Proper state management with useState/useContext. No prop drilling.'
+    },
+    {
+      name: 'error_boundaries',
+      description: 'Error states are handled gracefully'
+    }
+  ]
+};
+```
+
+### Backend APIs
+
+```typescript
+const apiRubric = {
+  name: 'REST API Quality',
+  criteria: [
+    {
+      name: 'rest_compliance',
+      description: 'Follows REST principles: resource-based URLs, appropriate HTTP methods, stateless'
+    },
+    {
+      name: 'validation',
+      description: 'Request validation with clear error messages. Input sanitization.'
+    },
+    {
+      name: 'authentication',
+      description: 'Protected endpoints require authentication. JWT tokens are validated.'
+    },
+    {
+      name: 'error_responses',
+      description: 'Consistent error format. Appropriate status codes. No stack traces in production.'
+    },
+    {
+      name: 'documentation',
+      description: 'OpenAPI/Swagger documentation. Request/response examples.'
+    }
+  ]
+};
+```
+
+### Database Migrations
+
+```typescript
+const migrationRubric = {
+  name: 'Database Migration',
+  criteria: [
+    {
+      name: 'reversible',
+      description: 'Migration has a down() function that properly reverts changes'
+    },
+    {
+      name: 'safe',
+      description: 'No data loss. Uses transactions. Handles edge cases (empty tables, constraints).'
+    },
+    {
+      name: 'performant',
+      description: 'Migration is efficient. Indexes are created. No table scans on large tables.'
+    },
+    {
+      name: 'tested',
+      description: 'Migration has been tested on production-like data'
+    }
+  ]
+};
+```
+
+---
+
+## Common Pitfalls
+
+### 1. Overlapping Criteria
+
+```typescript
+// ❌ Bad: 'works' and 'no_bugs' overlap
+criteria: [
+  { name: 'works', description: 'Code works correctly' },
+  { name: 'no_bugs', description: 'Code has no bugs' }
+]
+
+// ✅ Good: Distinct criteria
+criteria: [
+  { name: 'functionality', description: 'Implements all specified features' },
+  { name: 'edge_cases', description: 'Handles edge cases and error conditions' }
+]
+```
+
+### 2. Vague Descriptions
+
+```typescript
+// ❌ Bad: Too vague
+{
+  name: 'quality',
+  description: 'High quality code'
+}
+
+// ✅ Good: Specific and measurable
+{
+  name: 'code_quality',
+  description: 'Functions < 50 lines, descriptive variable names, no code duplication, proper TypeScript types'
+}
+```
+
+### 3. Too Many Criteria
+
+```typescript
+// ❌ Bad: 20 criteria is overwhelming and expensive
+const rubric = {
+  name: 'Everything',
+  criteria: [/* 20 criteria */]
+};
+
+// ✅ Good: Group related criteria
+const rubric = {
+  name: 'Code Review',
+  criteria: [
+    {
+      name: 'functionality',
+      description: 'Feature works correctly for all specified use cases, handles edge cases, and has proper error handling'
+    },
+    // ... 4-6 total criteria
+  ]
+};
+```
+
+### 4. Unbalanced Weights
+
+```typescript
+// ❌ Bad: Weights don't sum to 1.0
+criteria: [
+  { name: 'correctness', weight: 0.8 },
+  { name: 'style', weight: 0.5 }
+]  // Total: 1.3 (should be 1.0)
+
+// ✅ Good: Weights sum to 1.0
+criteria: [
+  { name: 'correctness', weight: 0.6 },
+  { name: 'style', weight: 0.4 }
+]  // Total: 1.0
+```
+
+### 5. Unrealistic Thresholds
+
+```typescript
+// ❌ Bad: Impossible to pass
+passThreshold: 0.99  // Requires 99% score
+
+// ✅ Good: Realistic but high standard
+passThreshold: 0.85  // Requires 85% score
+```
+
+---
+
+## Testing Your Rubrics
+
+### Iterate and Refine
+
+Test rubrics on sample code and refine based on results:
+
+```typescript
+vibeTest('test rubric', async ({ runAgent, judge }) => {
+  const result = await runAgent({
+    prompt: '/implement sample feature'
+  });
+
+  const judgment = await judge(result, { rubric: myRubric });
+
+  // Review judgment feedback
+  console.log('Judgment:', judgment);
+  console.log('Criteria results:', judgment.criteria);
+
+  // Refine rubric based on results:
+  // - Were any criteria always passing/failing?
+  // - Was feedback actionable?
+  // - Did weights reflect importance?
+});
+```
+
+### Validate with Multiple Examples
+
+Test rubrics against different quality levels:
+
+```typescript
+const testCases = [
+  { prompt: '/implement perfect feature', expectedPass: true },
+  { prompt: '/implement buggy feature', expectedPass: false },
+  { prompt: '/implement untested feature', expectedPass: false }
+];
+
+for (const testCase of testCases) {
+  const result = await runAgent({ prompt: testCase.prompt });
+  const judgment = await judge(result, { rubric: myRubric });
+
+  console.log(`${testCase.prompt}: ${judgment.passed} (expected: ${testCase.expectedPass})`);
+}
+```
+
+---
+
+## Best Practices Summary
+
+1. **Write specific, measurable criteria** - LLM judges need clear guidance
+2. **Use 3-7 criteria** - Balance detail vs. cost
+3. **Set appropriate weights** - Prioritize important criteria
+4. **Use thresholds for critical criteria** - Ensure critical aspects pass
+5. **Make criteria independent** - Avoid overlap
+6. **Provide actionable descriptions** - Guide improvement
+7. **Test and iterate** - Refine rubrics based on results
+8. **Consider cost** - More criteria = more tokens = higher cost
+
+---
+
+## What's Next?
+
+Now that you understand rubric design, explore:
+
+- **[Using Judge →](/guides/evaluation/using-judge/)** - Apply your rubrics
+- **[Benchmarking →](/guides/evaluation/benchmarking/)** - Compare models using rubrics
+- **[Matrix Testing →](/guides/testing/matrix-testing/)** - Test rubrics across configurations
+
+Or dive into the API reference:
+
+- **[Rubric Interface →](/api/types/rubric/)** - Complete type definition
+- **[judge() API →](/api/core/judge/)** - Judge API documentation

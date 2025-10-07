@@ -1,0 +1,649 @@
+---
+title: PartialRunResult
+description: Partial execution state available in reactive watchers during agent execution
+sidebar:
+  order: 5
+---
+
+`PartialRunResult` is the partial execution state passed to watcher functions registered via `AgentExecution.watch()`. It provides access to files, tools, metrics, and TODOs as they accumulate during execution, enabling fail-fast assertions.
+
+## Interface
+
+```typescript
+interface PartialRunResult {
+  files: PartialFileAccessor;
+  tools: PartialToolAccessor;
+  metrics: PartialMetrics;
+  todos: TodoItem[];
+}
+```
+
+## Key Differences from RunResult
+
+| Property | RunResult | PartialRunResult |
+|----------|-----------|------------------|
+| **Completeness** | Complete data after execution | Incremental data during execution |
+| **Availability** | After `await runAgent()` | Inside `.watch()` callbacks |
+| **File Content** | Full before/after content | Only "after" content (incremental) |
+| **Git State** | Complete git diffs | Not available (execution not finished) |
+| **Bundle Dir** | Available | Not available (bundle not finalized) |
+| **Logs** | Complete logs | Not available |
+| **Timeline** | Complete timeline | Not available |
+
+**Purpose:** Enable reactive assertions and fail-fast behavior during execution.
+
+---
+
+## Properties
+
+### files
+
+```typescript
+files: {
+  changed(): FileChange[];
+  get(path: string): FileChange | undefined;
+  filter(glob: string | string[]): FileChange[];
+  stats(): {
+    added: number;
+    modified: number;
+    deleted: number;
+    renamed: number;
+    total: number;
+  };
+}
+```
+
+Access file changes that have occurred so far in the execution.
+
+**Behavior:**
+- Only includes files changed up to the current hook event
+- File content is incremental (only "after" state, no "before")
+- New files appear as they're written
+
+**Example - Restrict File Changes:**
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('restrict to auth files', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/refactor authentication'
+  });
+
+  execution.watch(({ files }) => {
+    const nonAuthFiles = files.changed().filter(f =>
+      !f.path.startsWith('src/auth/')
+    );
+
+    if (nonAuthFiles.length > 0) {
+      expect.fail(
+        `Modified non-auth files: ${nonAuthFiles.map(f => f.path).join(', ')}`
+      );
+    }
+  });
+
+  await execution;
+});
+```
+
+**Example - File Count Limit:**
+
+```typescript
+execution.watch(({ files }) => {
+  const stats = files.stats();
+
+  if (stats.total > 50) {
+    expect.fail(`Too many files changed: ${stats.total} (max: 50)`);
+  }
+});
+```
+
+**See Also:**
+- [FileChange →](/api/types/file-change/) - File change interface
+
+---
+
+### tools
+
+```typescript
+tools: {
+  all(): ToolCall[];
+  used(name: string): number;
+  findFirst(name: string): ToolCall | undefined;
+  filter(name: string): ToolCall[];
+  failed(): ToolCall[];
+  succeeded(): ToolCall[];
+}
+```
+
+Access tool calls that have completed so far in the execution.
+
+**Behavior:**
+- Only includes completed tool calls (PreToolUse + PostToolUse correlated)
+- Updates after each `PostToolUse` hook
+- Failed tools are immediately available
+
+**Example - Limit Tool Failures:**
+
+```typescript
+execution.watch(({ tools }) => {
+  const failures = tools.failed();
+
+  if (failures.length >= 3) {
+    expect.fail(`Too many tool failures: ${failures.length}`);
+  }
+});
+```
+
+**Example - Restrict Tool Usage:**
+
+```typescript
+execution.watch(({ tools }) => {
+  const allowedTools = ['Read', 'Edit', 'Bash'];
+  const usedTools = tools.all();
+
+  const unauthorized = usedTools.filter(t =>
+    !allowedTools.includes(t.name)
+  );
+
+  if (unauthorized.length > 0) {
+    expect.fail(
+      `Unauthorized tools used: ${unauthorized.map(t => t.name).join(', ')}`
+    );
+  }
+});
+```
+
+**See Also:**
+- [ToolCall →](/api/types/tool-call/) - Tool call interface
+
+---
+
+### metrics
+
+```typescript
+metrics: {
+  totalCostUsd?: number;
+  inputTokens: number;
+  outputTokens: number;
+  turns: number;
+}
+```
+
+Execution metrics accumulated so far.
+
+**Properties:**
+
+#### `totalCostUsd` (optional)
+Total cost in USD up to this point.
+
+```typescript
+execution.watch(({ metrics }) => {
+  if (metrics.totalCostUsd && metrics.totalCostUsd > 1.0) {
+    expect.fail(`Cost exceeded budget: $${metrics.totalCostUsd.toFixed(4)}`);
+  }
+});
+```
+
+#### `inputTokens`
+Total input tokens consumed.
+
+```typescript
+execution.watch(({ metrics }) => {
+  console.log(`Input tokens so far: ${metrics.inputTokens.toLocaleString()}`);
+});
+```
+
+#### `outputTokens`
+Total output tokens generated.
+
+```typescript
+execution.watch(({ metrics }) => {
+  const ratio = metrics.outputTokens / metrics.inputTokens;
+  console.log(`Output/Input ratio: ${ratio.toFixed(2)}`);
+});
+```
+
+#### `turns`
+Number of turns (request/response cycles) completed.
+
+```typescript
+execution.watch(({ metrics }) => {
+  if (metrics.turns > 20) {
+    expect.fail('Agent is taking too many turns');
+  }
+});
+```
+
+**Example - Cost Budget Enforcement:**
+
+```typescript
+vibeTest('enforce cost budget', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/expensive-task',
+    model: 'claude-opus-4-20250514'
+  });
+
+  execution.watch(({ metrics }) => {
+    // Abort if cost exceeds $2.00
+    if (metrics.totalCostUsd && metrics.totalCostUsd > 2.0) {
+      expect.fail(
+        `Cost budget exceeded: $${metrics.totalCostUsd.toFixed(4)} > $2.00`
+      );
+    }
+  });
+
+  await execution;
+});
+```
+
+---
+
+### todos
+
+```typescript
+todos: TodoItem[]
+```
+
+Array of TODO items with their current status.
+
+**TodoItem Interface:**
+
+```typescript
+interface TodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm: string;
+}
+```
+
+**Behavior:**
+- Updates after each `TodoUpdate` hook
+- Reflects the current state of the agent's task list
+- Useful for tracking progress and detecting stalls
+
+**Example - Track Progress:**
+
+```typescript
+execution.watch(({ todos }) => {
+  const completed = todos.filter(t => t.status === 'completed').length;
+  const total = todos.length;
+
+  console.log(`Progress: ${completed}/${total} tasks completed`);
+});
+```
+
+**Example - Detect Stalls:**
+
+```typescript
+let lastCompletedCount = 0;
+let stallTurns = 0;
+
+execution.watch(({ todos, metrics }) => {
+  const completed = todos.filter(t => t.status === 'completed').length;
+
+  if (completed === lastCompletedCount) {
+    stallTurns++;
+  } else {
+    stallTurns = 0;
+    lastCompletedCount = completed;
+  }
+
+  // Abort if no progress for 5 turns
+  if (stallTurns >= 5) {
+    expect.fail('Agent stalled: no progress for 5 turns');
+  }
+});
+```
+
+**Example - Require Progress:**
+
+```typescript
+vibeTest('ensure progress', async ({ runAgent, expect }) => {
+  const execution = runAgent({ prompt: '/complex-task' });
+
+  execution.watch(({ todos }) => {
+    const completed = todos.filter(t => t.status === 'completed').length;
+
+    // Must complete at least one task
+    if (todos.length > 0 && completed === 0) {
+      console.warn('No tasks completed yet');
+    }
+  });
+
+  const result = await execution;
+
+  // Final assertion: all tasks completed
+  const finalCompleted = result.todos?.filter(t => t.status === 'completed').length;
+  expect(finalCompleted).toBe(result.todos?.length);
+});
+```
+
+---
+
+## Watcher Execution Flow
+
+Watchers receive `PartialRunResult` after each significant hook event:
+
+1. **PostToolUse** - After each tool completes
+2. **TodoUpdate** - When TODO status changes
+3. **Notification** - When agent sends notifications
+
+**Execution Order:**
+- Watchers run **sequentially** in registration order
+- Each watcher completes before the next starts
+- If any watcher throws, execution aborts immediately
+
+**Example - Multiple Watchers:**
+
+```typescript
+vibeTest('multiple watchers', async ({ runAgent, expect }) => {
+  const execution = runAgent({ prompt: '/task' });
+
+  execution
+    .watch(({ files }) => {
+      // Watcher 1: Runs first
+      console.log('Watcher 1: File count =', files.changed().length);
+    })
+    .watch(({ tools }) => {
+      // Watcher 2: Runs second (only if watcher 1 passes)
+      console.log('Watcher 2: Tool count =', tools.all().length);
+    })
+    .watch(({ metrics }) => {
+      // Watcher 3: Runs third (only if watchers 1 and 2 pass)
+      console.log('Watcher 3: Cost =', metrics.totalCostUsd);
+    });
+
+  await execution;
+});
+```
+
+---
+
+## Common Patterns
+
+### Cost Budget Enforcement
+
+```typescript
+execution.watch(({ metrics }) => {
+  if (metrics.totalCostUsd && metrics.totalCostUsd > 1.0) {
+    expect.fail(`Cost exceeded: $${metrics.totalCostUsd.toFixed(4)}`);
+  }
+});
+```
+
+### File Change Restrictions
+
+```typescript
+execution.watch(({ files }) => {
+  const allowedPaths = ['src/**', 'tests/**'];
+  const violations = files.changed().filter(f =>
+    !allowedPaths.some(pattern => micromatch.isMatch(f.path, pattern))
+  );
+
+  if (violations.length > 0) {
+    expect.fail(`Unauthorized file changes: ${violations.map(f => f.path)}`);
+  }
+});
+```
+
+### Tool Usage Limits
+
+```typescript
+execution.watch(({ tools }) => {
+  const bashCount = tools.used('Bash');
+
+  if (bashCount > 10) {
+    expect.fail('Too many shell commands executed');
+  }
+});
+```
+
+### Progress Tracking
+
+```typescript
+execution.watch(({ todos }) => {
+  const inProgress = todos.filter(t => t.status === 'in_progress');
+
+  if (inProgress.length > 3) {
+    console.warn('Agent is juggling too many tasks');
+  }
+});
+```
+
+### Turn Limit
+
+```typescript
+execution.watch(({ metrics }) => {
+  if (metrics.turns > 30) {
+    expect.fail('Agent exceeded turn limit');
+  }
+});
+```
+
+---
+
+## Fail-Fast Example
+
+Reactive watchers enable fail-fast behavior, aborting execution immediately when conditions are violated:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('fail-fast constraints', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/refactor codebase'
+  });
+
+  // Cost constraint
+  execution.watch(({ metrics }) => {
+    if (metrics.totalCostUsd && metrics.totalCostUsd > 0.50) {
+      expect.fail('Cost budget exceeded');
+    }
+  });
+
+  // File constraint
+  execution.watch(({ files }) => {
+    const stats = files.stats();
+    if (stats.deleted > 0) {
+      expect.fail('Files were deleted');
+    }
+  });
+
+  // Tool constraint
+  execution.watch(({ tools }) => {
+    const failures = tools.failed();
+    if (failures.length > 2) {
+      expect.fail('Too many tool failures');
+    }
+  });
+
+  // Progress constraint
+  execution.watch(({ todos, metrics }) => {
+    if (metrics.turns > 10 && todos.every(t => t.status !== 'completed')) {
+      expect.fail('No tasks completed after 10 turns');
+    }
+  });
+
+  try {
+    await execution;
+    // Only reaches here if all watchers passed
+  } catch (error) {
+    // Execution aborted by a watcher
+    console.error('Execution failed:', error.message);
+    throw error;
+  }
+});
+```
+
+---
+
+## Incremental Data
+
+`PartialRunResult` provides incremental snapshots of execution state:
+
+**Example - Data Accumulation:**
+
+```typescript
+vibeTest('track accumulation', async ({ runAgent }) => {
+  const execution = runAgent({ prompt: '/implement features' });
+
+  const snapshots: Array<{
+    turn: number;
+    files: number;
+    tools: number;
+    cost: number;
+  }> = [];
+
+  execution.watch(({ files, tools, metrics }) => {
+    snapshots.push({
+      turn: metrics.turns,
+      files: files.changed().length,
+      tools: tools.all().length,
+      cost: metrics.totalCostUsd || 0
+    });
+  });
+
+  await execution;
+
+  // Analyze accumulation
+  console.log('Execution progression:');
+  snapshots.forEach(s => {
+    console.log(`Turn ${s.turn}: ${s.files} files, ${s.tools} tools, $${s.cost.toFixed(4)}`);
+  });
+});
+```
+
+---
+
+## Limitations
+
+`PartialRunResult` has intentional limitations compared to `RunResult`:
+
+**Not Available:**
+- `bundleDir` - Bundle not finalized until execution completes
+- `logs` - Complete logs only available at end
+- `git` - Git state captured after execution
+- `timeline` - Complete timeline only available at end
+- `hookCaptureStatus` - Status determined at end
+
+**Incremental Only:**
+- File content is "after" only (no "before" state during execution)
+- Metrics are cumulative but may be incomplete
+- TODOs reflect current state, not final state
+
+**Workarounds:**
+
+If you need complete data, use standard assertions after execution:
+
+```typescript
+vibeTest('complete data', async ({ runAgent, expect }) => {
+  const execution = runAgent({ prompt: '/task' });
+
+  // Reactive assertions during execution
+  execution.watch(({ metrics }) => {
+    expect(metrics.totalCostUsd).toBeLessThan(1.0);
+  });
+
+  // Complete assertions after execution
+  const result = await execution;
+
+  expect(result.git.changedFiles).toContain('src/index.ts');
+  expect(result.logs).not.toContain('ERROR');
+});
+```
+
+---
+
+## Complete Example
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('reactive watcher example', async ({ runAgent, expect }) => {
+  const execution = runAgent({
+    prompt: '/implement user authentication with tests'
+  });
+
+  // Track state throughout execution
+  const checkpoints: Array<{
+    turn: number;
+    files: string[];
+    tools: string[];
+    cost: number;
+  }> = [];
+
+  execution
+    // Checkpoint watcher: Log state
+    .watch(({ files, tools, metrics }) => {
+      checkpoints.push({
+        turn: metrics.turns,
+        files: files.changed().map(f => f.path),
+        tools: tools.all().map(t => t.name),
+        cost: metrics.totalCostUsd || 0
+      });
+    })
+    // File watcher: Restrict changes
+    .watch(({ files }) => {
+      const authFiles = files.changed().filter(f =>
+        f.path.startsWith('src/auth/') || f.path.startsWith('tests/auth/')
+      );
+      const otherFiles = files.changed().filter(f =>
+        !f.path.startsWith('src/auth/') && !f.path.startsWith('tests/auth/')
+      );
+
+      if (otherFiles.length > 0) {
+        expect.fail(
+          `Modified non-auth files: ${otherFiles.map(f => f.path).join(', ')}`
+        );
+      }
+    })
+    // Cost watcher: Enforce budget
+    .watch(({ metrics }) => {
+      if (metrics.totalCostUsd && metrics.totalCostUsd > 0.25) {
+        expect.fail(`Cost exceeded $0.25: $${metrics.totalCostUsd.toFixed(4)}`);
+      }
+    })
+    // Progress watcher: Ensure movement
+    .watch(({ todos, metrics }) => {
+      const completed = todos.filter(t => t.status === 'completed').length;
+
+      if (metrics.turns > 15 && completed === 0) {
+        expect.fail('No tasks completed after 15 turns');
+      }
+    })
+    // Tool watcher: Limit failures
+    .watch(({ tools }) => {
+      const failures = tools.failed();
+
+      if (failures.length > 2) {
+        expect.fail(
+          `Too many failures: ${failures.map(t => `${t.name}: ${t.error}`).join(', ')}`
+        );
+      }
+    });
+
+  const result = await execution;
+
+  // Final assertions with complete data
+  expect(result.files).toHaveChangedFiles(['src/auth/**', 'tests/auth/**']);
+  expect(result.tools.failed()).toHaveLength(0);
+  expect(result).toCompleteAllTodos();
+
+  // Analyze checkpoints
+  console.log('Execution checkpoints:');
+  checkpoints.forEach(cp => {
+    console.log(`Turn ${cp.turn}: ${cp.files.length} files, ${cp.tools.length} tools, $${cp.cost.toFixed(4)}`);
+  });
+});
+```
+
+---
+
+## See Also
+
+- [AgentExecution →](/api/types/agent-execution/) - Execution handle with watch() method
+- [RunResult →](/api/types/run-result/) - Complete result after execution
+- [Reactive Watchers Guide →](/guides/testing/reactive-watchers/) - Watcher patterns
+- [FileChange →](/api/types/file-change/) - File change interface
+- [ToolCall →](/api/types/tool-call/) - Tool call interface

@@ -1,68 +1,130 @@
 ---
-title: Guides
-description: How-to guides for building automations, running evaluations, and configuring agents
+title: How-To Guides
+description: Task-oriented guides for testing Claude Code agents, building automation workflows, and evaluating model performance. Practical solutions for real-world vibe-check use cases.
 ---
 
-:::tip[📖 How-To Guides - Problem-Oriented]
-This section contains **practical how-to guides** for accomplishing specific tasks. Each guide assumes you have baseline knowledge (completed [Getting Started](/getting-started/)) and focuses on solving a particular problem.
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-**Looking for learning material?** See [Getting Started](/getting-started/) for step-by-step tutorials.
-**Looking for API details?** See [API Reference](/api/) for function signatures.
-**Want to understand "why"?** See [Explanation](/explanation/) for architecture and design decisions.
-:::
+These guides provide practical solutions to specific problems. Each guide is task-oriented and focuses on achieving a particular goal.
+
+## Quick Navigation
+
+<CardGrid>
+  <Card title="Testing Guides" icon="approve-check">
+    [Learn testing patterns](/guides/testing/) including reactive watchers, cumulative state, custom matchers, and matrix testing.
+  </Card>
+
+  <Card title="Automation Guides" icon="setting">
+    [Build robust workflows](/guides/automation/) with multi-stage pipelines, loop patterns, and error handling.
+  </Card>
+
+  <Card title="Evaluation Guides" icon="star">
+    [Evaluate agent quality](/guides/evaluation/) using LLM judges, rubrics, and benchmarking strategies.
+  </Card>
+
+  <Card title="Advanced Guides" icon="rocket">
+    [Master advanced features](/guides/advanced/) like MCP servers, cost optimization, bundle cleanup, and multi-modal prompts.
+  </Card>
+</CardGrid>
 
 ---
+
+## Testing
+
+Learn patterns for writing effective tests and assertions.
+
+### [Reactive Watchers](/guides/testing/reactive-watchers/)
+Implement fail-fast assertions with `AgentExecution.watch()` to catch issues early during agent runs.
+
+**Topics:** Real-time monitoring, partial results, early termination, error detection
+
+### [Cumulative State](/guides/testing/cumulative-state/)
+Track and aggregate state across multiple agent runs for comprehensive testing scenarios.
+
+**Topics:** Multi-run tracking, state aggregation, cross-run analysis, data persistence
+
+### [Custom Matchers](/guides/testing/custom-matchers/)
+Use all available matchers for files, tools, quality checks, and cost constraints.
+
+**Topics:** File matchers, tool matchers, quality matchers, cost matchers, matcher chaining
+
+### [Matrix Testing](/guides/testing/matrix-testing/)
+Generate Cartesian product tests to benchmark multiple models and configurations.
+
+**Topics:** Test generation, model comparison, configuration matrices, performance analysis
 
 ---
 
 ## Automation
 
-Build multi-step agent pipelines and orchestrate workflows.
+Build production-ready agent workflows and pipelines.
 
-- **[Building Pipelines](/guides/automation/pipelines/)** - Chain agents, pass artifacts, handle errors
-- **[Multi-Agent Orchestration](/guides/automation/orchestration/)** - Coordinate multiple agents with different tools
-- **[Error Handling & Debugging](/guides/automation/error-handling/)** - Debug failed runs, inspect transcripts
+### [Building Workflows](/guides/automation/building-workflows/)
+Create multi-stage workflows that orchestrate complex agent interactions.
+
+**Topics:** Stage definitions, cumulative context, cross-stage data sharing, pipeline composition
+
+### [Loop Patterns](/guides/automation/loop-patterns/)
+Implement retry logic and iterative workflows using `until()` helpers.
+
+**Topics:** Retry strategies, convergence testing, iterative refinement, condition checking
+
+### [Error Handling](/guides/automation/error-handling/)
+Build resilient workflows with comprehensive error handling strategies.
+
+**Topics:** Error recovery, graceful degradation, fallback strategies, error reporting
 
 ---
 
 ## Evaluation
 
-Benchmark models, track costs, and enforce quality standards.
+Evaluate and benchmark agent quality systematically.
 
-- **[Model Benchmarking](/guides/evaluation/benchmarking/)** - Compare model performance and cost
-- **[Matrix Testing](/guides/evaluation/matrix-testing/)** - Test multiple configurations in parallel
-- **[Quality Gates](/guides/evaluation/quality-gates/)** - Use matchers and LLM judges
+### [Using Judges](/guides/evaluation/using-judge/)
+Leverage LLM-based evaluation to assess agent output quality.
 
----
+**Topics:** Judge configuration, rubric application, scoring systems, quality gates
 
-## Agents
+### [Writing Rubrics](/guides/evaluation/rubrics/)
+Design effective rubrics for consistent and reliable evaluation.
 
-Configure agents with models, tools, sources, and system prompts.
+**Topics:** Rubric structure, criterion design, scoring scales, best practices
 
-- **[Agent Configuration](/guides/agents/configuration/)** - Complete guide to defineAgent()
-- **[Project Sources](/guides/agents/sources/)** - temp, local, git sources with isolation
-- **[Tools & MCP](/guides/agents/tools/)** - Tool allowlisting and MCP server integration
-- **[System Prompts](/guides/agents/system-prompts/)** - Presets and custom instructions
+### [Benchmarking](/guides/evaluation/benchmarking/)
+Compare models, configurations, and prompts with systematic benchmarking.
+
+**Topics:** Performance metrics, cost analysis, model comparison, regression detection
 
 ---
 
 ## Advanced
 
-Deep dives into isolation, cost tracking, CI/CD, and extensibility.
+Master advanced features and optimization techniques.
 
-- **[Worktree Isolation](/guides/advanced/isolation/)** - How isolation works, cleanup policies
-- **[Cost Optimization](/guides/advanced/cost-optimization/)** - Track costs, set budgets, optimize runs
-- **[CI/CD Integration](/guides/advanced/ci-cd/)** - Run in CI, publish reports, gate merges
-- **[Custom Matchers](/guides/advanced/custom-matchers/)** - Write your own quality assertions
+### [MCP Servers](/guides/advanced/mcp-servers/)
+Integrate Model Context Protocol servers for enhanced agent capabilities.
+
+**Topics:** MCP configuration, server integration, tool availability, context management
+
+### [Cost Optimization](/guides/advanced/cost-optimization/)
+Reduce costs while maintaining quality through strategic optimizations.
+
+**Topics:** Token reduction, model selection, prompt optimization, caching strategies
+
+### [Bundle Cleanup](/guides/advanced/bundle-cleanup/)
+Manage artifact storage and implement cleanup policies.
+
+**Topics:** Retention policies, storage management, cleanup strategies, disk usage
+
+### [Multi-Modal Prompts](/guides/advanced/multi-modal-prompts/)
+Use text, images, and files in your agent prompts effectively.
+
+**Topics:** Image prompts, file attachments, mixed content, format handling
 
 ---
 
 ## Related Documentation
 
-- **[Recipes](/recipes/)** - Copy-paste code patterns for common scenarios
-- **[API Reference](/api/)** - Complete TypeScript function and type reference
-- **[Examples](/examples/)** - Real-world code examples
-
----
-
-[← Back to Documentation Home](../)
+- **[Getting Started](/getting-started/)** - Tutorials for learning vibe-check fundamentals
+- **[API Reference](/api/)** - Complete API documentation
+- **[Explanation](/explanation/)** - Architecture and design deep dives

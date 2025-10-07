@@ -1,0 +1,421 @@
+---
+title: VibeTestContext
+description: Test context interface injected into vibeTest functions
+sidebar:
+  order: 1
+---
+
+The `VibeTestContext` interface is injected into `vibeTest` functions via Vitest fixtures. It provides methods and properties for agent execution, evaluation, assertions, and cumulative state tracking.
+
+## Interface
+
+```typescript
+interface VibeTestContext {
+  runAgent(opts: RunAgentOptions): AgentExecution;
+  judge<T = DefaultJudgmentResult>(
+    result: RunResult,
+    options: JudgeOptions<T>
+  ): Promise<T>;
+  expect: typeof import('vitest')['expect'];
+  annotate(message: string, type?: string, attachment?: TestAttachment): Promise<void>;
+  task: import('vitest').TestContext['task'];
+  files: FileAccessor;
+  tools: ToolAccessor;
+  timeline: TimelineAccessor;
+}
+```
+
+## Properties
+
+### runAgent
+
+```typescript
+runAgent(opts: RunAgentOptions): AgentExecution
+```
+
+Execute an agent with the given options. Automatically captures hooks, git state, file changes, and tool calls.
+
+**Parameters:**
+- `opts` - Agent execution configuration
+
+**Returns:**
+- `AgentExecution` - Thenable execution handle with reactive watch capabilities
+
+**Behavior:**
+- State accumulates across multiple `runAgent()` calls in the same test
+- Access cumulative state via `context.files`, `context.tools`, `context.timeline`
+
+**Example:**
+
+```typescript
+vibeTest('multi-run test', async ({ runAgent, expect }) => {
+  // First run
+  const result1 = await runAgent({
+    prompt: '/implement feature A'
+  });
+
+  // Second run (state accumulates)
+  const result2 = await runAgent({
+    prompt: '/implement feature B'
+  });
+
+  // Access cumulative state
+  expect(context.files.changed().length).toBeGreaterThan(0);
+});
+```
+
+**See Also:**
+- [runAgent() API →](/api/core/runagent/)
+- [AgentExecution →](/api/types/agent-execution/)
+- [RunAgentOptions →](/api/types/configuration/#runagentoptions)
+
+---
+
+### judge
+
+```typescript
+judge<T = DefaultJudgmentResult>(
+  result: RunResult,
+  options: {
+    rubric: Rubric;
+    instructions?: string;
+    resultFormat?: z.ZodType<T>;
+    throwOnFail?: boolean;
+  }
+): Promise<T>
+```
+
+Evaluate a `RunResult` using LLM-based judgment. The judge is a specialized agent that formats the rubric into a prompt internally.
+
+**Type Parameters:**
+- `T` - Type of judgment result (default: `DefaultJudgmentResult`)
+
+**Parameters:**
+- `result` - The `RunResult` to evaluate
+- `options.rubric` - Evaluation criteria
+- `options.instructions` - Optional custom instructions for evaluation
+- `options.resultFormat` - Optional Zod schema for type-safe results
+- `options.throwOnFail` - If `true`, throws error when judgment fails
+
+**Returns:**
+- `Promise<T>` - Structured judgment result
+
+**Example:**
+
+```typescript
+vibeTest('quality evaluation', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/refactor code'
+  });
+
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Code Quality',
+      criteria: [
+        { name: 'readability', description: 'Code is easy to read' }
+      ]
+    }
+  });
+
+  expect(judgment.passed).toBe(true);
+});
+```
+
+**See Also:**
+- [judge() API →](/api/core/judge/)
+- [Rubric →](/api/types/rubric/)
+- [Using Judge →](/guides/evaluation/using-judge/)
+
+---
+
+### expect
+
+```typescript
+expect: typeof import('vitest')['expect']
+```
+
+Context-bound `expect` function for snapshot concurrency safety.
+
+**Purpose:**
+- Use this instead of global `expect` in concurrent tests
+- Ensures snapshots are properly isolated
+
+**Example:**
+
+```typescript
+vibeTest.concurrent('concurrent test', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/task' });
+
+  // Use context.expect, not global expect
+  expect(result.files.changed()).toMatchSnapshot();
+});
+```
+
+---
+
+### annotate
+
+```typescript
+annotate(
+  message: string,
+  type?: string,
+  attachment?: TestAttachment
+): Promise<void>
+```
+
+Stream annotations to reporters in real-time.
+
+**Parameters:**
+- `message` - Annotation message
+- `type` - Optional annotation type (e.g., 'info', 'warning', 'error')
+- `attachment` - Optional file attachment (Vitest moves to attachmentsDir automatically)
+
+**Example:**
+
+```typescript
+vibeTest('annotated test', async ({ runAgent, annotate }) => {
+  await annotate('Starting feature implementation');
+
+  const result = await runAgent({
+    prompt: '/implement feature'
+  });
+
+  await annotate('Implementation complete', 'success');
+});
+```
+
+---
+
+### task
+
+```typescript
+task: import('vitest').TestContext['task']
+```
+
+Access to Vitest task metadata for custom meta storage.
+
+**Use Cases:**
+- Store custom metadata for reporters
+- Access test name, file path, etc.
+
+**Example:**
+
+```typescript
+vibeTest('metadata test', async ({ runAgent, task }) => {
+  const result = await runAgent({ prompt: '/task' });
+
+  // Store custom metadata
+  task.meta.customData = { feature: 'auth' };
+});
+```
+
+---
+
+### files
+
+```typescript
+files: {
+  changed(): FileChange[];
+  get(path: string): FileChange | undefined;
+  filter(glob: string | string[]): FileChange[];
+  stats(): {
+    added: number;
+    modified: number;
+    deleted: number;
+    renamed: number;
+    total: number;
+  };
+}
+```
+
+Access cumulative file changes across all `runAgent()` calls in this test.
+
+**Methods:**
+
+#### `changed()`
+Returns all files changed across all agent runs.
+
+```typescript
+const allFiles = context.files.changed();
+console.log(`Total files changed: ${allFiles.length}`);
+```
+
+#### `get(path)`
+Get a specific file by path.
+
+```typescript
+const file = context.files.get('src/index.ts');
+if (file) {
+  const content = await file.after?.text();
+}
+```
+
+#### `filter(glob)`
+Filter files by glob pattern.
+
+```typescript
+const tsFiles = context.files.filter('**/*.ts');
+const testFiles = context.files.filter(['**/*.test.ts', '**/*.spec.ts']);
+```
+
+#### `stats()`
+Get change statistics.
+
+```typescript
+const stats = context.files.stats();
+console.log(`Added: ${stats.added}`);
+console.log(`Modified: ${stats.modified}`);
+console.log(`Deleted: ${stats.deleted}`);
+console.log(`Total: ${stats.total}`);
+```
+
+**See Also:**
+- [FileChange →](/api/types/file-change/)
+- [Cumulative State →](/guides/testing/cumulative-state/)
+
+---
+
+### tools
+
+```typescript
+tools: {
+  all(): ToolCall[];
+  used(name: string): number;
+  findFirst(name: string): ToolCall | undefined;
+  filter(name: string): ToolCall[];
+  failed(): ToolCall[];
+  succeeded(): ToolCall[];
+}
+```
+
+Access cumulative tool calls across all `runAgent()` calls in this test.
+
+**Methods:**
+
+#### `all()`
+Get all tool calls from all runs.
+
+```typescript
+const allTools = context.tools.all();
+console.log(`Total tools used: ${allTools.length}`);
+```
+
+#### `used(name)`
+Count uses of a specific tool.
+
+```typescript
+const editCount = context.tools.used('Edit');
+console.log(`Edit used ${editCount} times`);
+```
+
+#### `findFirst(name)`
+Find the first use of a specific tool.
+
+```typescript
+const firstWrite = context.tools.findFirst('Write');
+if (firstWrite) {
+  console.log('First file written:', firstWrite.input);
+}
+```
+
+#### `filter(name)`
+Get all calls to a specific tool.
+
+```typescript
+const bashCalls = context.tools.filter('Bash');
+bashCalls.forEach(call => {
+  console.log('Command:', call.input);
+});
+```
+
+#### `failed()`
+Get all failed tool calls.
+
+```typescript
+const failures = context.tools.failed();
+if (failures.length > 0) {
+  console.error('Failed tools:', failures.map(t => t.name));
+}
+```
+
+#### `succeeded()`
+Get all successful tool calls.
+
+```typescript
+const successful = context.tools.succeeded();
+console.log(`${successful.length} tools succeeded`);
+```
+
+**See Also:**
+- [ToolCall →](/api/types/tool-call/)
+
+---
+
+### timeline
+
+```typescript
+timeline: {
+  events(): AsyncIterable<TimelineEvent>;
+}
+```
+
+Access unified timeline of events across all `runAgent()` calls.
+
+**Methods:**
+
+#### `events()`
+Returns async iterable over all timeline events.
+
+```typescript
+for await (const event of context.timeline.events()) {
+  console.log(`${event.type} at ${event.timestamp}`);
+}
+```
+
+**Event Types:**
+- `tool_use` - Tool invocation
+- `tool_result` - Tool completion
+- `todo_update` - TODO status change
+- `notification` - Agent notification
+
+---
+
+## Module Augmentation
+
+Vibe-check augments Vitest's `TestContext` to include `VibeTestContext`:
+
+```typescript
+declare module 'vitest' {
+  export interface TestContext extends VibeTestContext {}
+}
+```
+
+This allows TypeScript to recognize vibe-check properties in test functions.
+
+---
+
+## Usage
+
+Access `VibeTestContext` through destructuring in `vibeTest` functions:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('example', async ({ runAgent, judge, expect, files, tools }) => {
+  // All properties available via destructuring
+  const result = await runAgent({ prompt: '/task' });
+
+  expect(result).toBeDefined();
+  expect(files.changed().length).toBeGreaterThan(0);
+  expect(tools.used('Edit')).toBeGreaterThan(0);
+});
+```
+
+---
+
+## See Also
+
+- [vibeTest() →](/api/core/vibetest/) - Test function using this context
+- [WorkflowContext →](/api/types/workflow-context/) - Workflow equivalent
+- [RunResult →](/api/types/run-result/) - Result type returned by runAgent()
+- [Cumulative State Guide →](/guides/testing/cumulative-state/) - Using files/tools/timeline

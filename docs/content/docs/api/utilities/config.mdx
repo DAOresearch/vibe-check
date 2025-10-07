@@ -1,0 +1,279 @@
+---
+title: defineVibeConfig
+description: Configure Vitest with vibe-check defaults
+sidebar:
+  order: 2
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+
+The `defineVibeConfig` helper creates a Vitest configuration with sensible defaults for agent testing, including reporters, timeouts, and setup files.
+
+## Signature
+
+```typescript
+function defineVibeConfig(
+  userConfig?: import('vitest/config').UserConfig
+): import('vitest/config').UserConfig
+```
+
+**Parameters:** Optional Vitest user configuration
+
+**Returns:** Complete Vitest config with vibe-check defaults applied
+
+---
+
+## Basic Usage
+
+Create `vitest.config.ts`:
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check/config';
+
+export default defineVibeConfig();
+```
+
+This automatically configures:
+- ✅ VibeCostReporter (terminal cost summary)
+- ✅ VibeHtmlReporter (rich HTML reports)
+- ✅ Custom matchers (auto-registration)
+- ✅ 5-minute default timeout
+- ✅ 50% CPU worker pool
+
+---
+
+## Applied Defaults
+
+When you use `defineVibeConfig()`, it sets:
+
+| Setting | Default Value | Description |
+|---------|---------------|-------------|
+| `test.reporters` | `['default', VibeCostReporter, VibeHtmlReporter]` | Terminal + cost + HTML reports |
+| `test.timeout` | `300000` | 5 minutes (agents need time) |
+| `test.maxWorkers` | `'50%'` | Half of CPU cores |
+| `test.setupFiles` | `['@dao/vibe-check/setup']` | Auto-register matchers |
+
+---
+
+## Custom Configuration
+
+Override defaults by passing config:
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check/config';
+
+export default defineVibeConfig({
+  test: {
+    // Override timeout
+    timeout: 600000, // 10 minutes
+
+    // Limit concurrency (avoid API rate limits)
+    maxConcurrency: 2,
+
+    // Run tests sequentially
+    poolOptions: {
+      threads: {
+        singleThread: true
+      }
+    },
+
+    // Custom test file patterns
+    include: ['**/*.vibe.test.{ts,js}'],
+
+    // Exclude patterns
+    exclude: ['**/node_modules/**', '**/archived/**']
+  }
+});
+```
+
+---
+
+## Bundle Cleanup
+
+Configure automatic cleanup of old RunBundles:
+
+```typescript
+export default defineVibeConfig({
+  cleanup: {
+    maxAgeDays: 30,        // Delete bundles older than 30 days
+    minFreeDiskMb: 1000,   // Clean up when <1GB free space
+    disabled: false        // Enable automatic cleanup
+  }
+});
+```
+
+**Cleanup runs:**
+- Before test suite starts (via setup file)
+- Deletes bundles in `.vibe-artifacts/` older than `maxAgeDays`
+- Triggered when disk space drops below `minFreeDiskMb`
+
+---
+
+## CI/CD Configuration
+
+Optimize for CI environments:
+
+```typescript
+export default defineVibeConfig({
+  test: {
+    timeout: 900000, // 15 minutes (slower CI machines)
+    maxConcurrency: 1, // Sequential (avoid rate limits)
+    reporters: process.env.CI
+      ? ['default', 'json'] // Minimal output in CI
+      : ['default', VibeCostReporter, VibeHtmlReporter]
+  },
+  cleanup: {
+    maxAgeDays: 7 // More aggressive cleanup in CI
+  }
+});
+```
+
+---
+
+## Multi-Environment Setup
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check/config';
+import { defineConfig } from 'vitest/config';
+
+const isCI = !!process.env.CI;
+
+export default defineVibeConfig({
+  test: {
+    timeout: isCI ? 600000 : 300000,
+    maxConcurrency: isCI ? 1 : 3,
+    reporters: isCI
+      ? ['default']
+      : ['default', VibeCostReporter, VibeHtmlReporter]
+  },
+  cleanup: {
+    maxAgeDays: isCI ? 7 : 30,
+    disabled: false
+  }
+});
+```
+
+---
+
+## Advanced Options
+
+### Custom Reporters
+
+```typescript
+import { VibeCostReporter, VibeHtmlReporter } from '@dao/vibe-check/reporters';
+
+export default defineVibeConfig({
+  test: {
+    reporters: [
+      'default',
+      new VibeCostReporter(),
+      new VibeHtmlReporter({
+        outputDir: './custom-reports'
+      })
+    ]
+  }
+});
+```
+
+### Parallel Execution
+
+```typescript
+export default defineVibeConfig({
+  test: {
+    maxWorkers: 4,      // Fixed number of workers
+    maxConcurrency: 8,  // Allow 8 tests concurrently
+    poolOptions: {
+      threads: {
+        minThreads: 2,
+        maxThreads: 4
+      }
+    }
+  }
+});
+```
+
+### TypeScript Paths
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check/config';
+import path from 'path';
+
+export default defineVibeConfig({
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      '@tests': path.resolve(__dirname, './tests')
+    }
+  }
+});
+```
+
+---
+
+## Examples
+
+### Minimal Config
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check/config';
+
+export default defineVibeConfig();
+```
+
+### Production Config
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check/config';
+
+export default defineVibeConfig({
+  test: {
+    timeout: 600000,
+    maxConcurrency: 2,
+    include: ['tests/e2e/**/*.test.ts']
+  },
+  cleanup: {
+    maxAgeDays: 14,
+    minFreeDiskMb: 2000
+  }
+});
+```
+
+### Development Config
+
+```typescript
+import { defineVibeConfig } from '@dao/vibe-check/config';
+
+export default defineVibeConfig({
+  test: {
+    timeout: 300000,
+    maxConcurrency: 4,
+    watch: true,
+    include: ['tests/**/*.test.ts']
+  },
+  cleanup: {
+    disabled: true // Keep all bundles during development
+  }
+});
+```
+
+---
+
+## Environment Variables
+
+### VIBE_DEFAULT_MODEL
+
+Set default model for all agents:
+
+```bash
+export VIBE_DEFAULT_MODEL=claude-3-5-haiku-latest
+```
+
+Used by `defineAgent()` and `runAgent()` when no model is specified.
+
+---
+
+## See Also
+
+- **[Installation →](/getting-started/installation/)** - Setup guide
+- **[Reporters →](/api/types/configuration/)** - Reporter configuration
+- **[Bundle Cleanup →](/guides/advanced/bundle-cleanup/)** - Cleanup strategies

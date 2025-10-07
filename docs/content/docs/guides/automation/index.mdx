@@ -1,13 +1,129 @@
 ---
 title: Automation Guides
-description: Guides for building automation workflows and pipelines
+description: Build production-ready Claude Code agent workflows with multi-stage pipelines, retry patterns, iterative loops, and robust error handling for automation at scale.
 ---
 
-# Automation Guides
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Learn how to build automation workflows with Vibe Check.
+Learn how to build robust, production-ready agent workflows using vibe-check's automation features.
 
-## Guides
+## Available Guides
 
-- [Building Pipelines](/guides/automation/pipelines/) - Create multi-step agent pipelines
-- [Multi-Agent Orchestration](/guides/automation/orchestration/) - Coordinate multiple agents
+<CardGrid>
+  <Card title="Building Workflows" icon="setting">
+    [Create multi-stage workflows](/guides/automation/building-workflows/) that orchestrate complex agent interactions.
+  </Card>
+
+  <Card title="Loop Patterns" icon="random">
+    [Implement retry logic and iteration](/guides/automation/loop-patterns/) with `until()` helpers and convergence testing.
+  </Card>
+
+  <Card title="Error Handling" icon="warning">
+    [Build resilient workflows](/guides/automation/error-handling/) with comprehensive error recovery strategies.
+  </Card>
+</CardGrid>
+
+---
+
+## Overview
+
+Production agent automation requires careful orchestration, error handling, and state management. These guides cover:
+
+- **Multi-stage workflows** - Chain agents together with cumulative context
+- **Iteration patterns** - Retry, loop, and convergence strategies
+- **Error resilience** - Recovery, fallbacks, and graceful degradation
+- **State management** - Context sharing across workflow stages
+
+---
+
+## Guide Details
+
+### [Building Workflows](/guides/automation/building-workflows/)
+
+Create sophisticated multi-stage workflows that orchestrate multiple agents.
+
+**You'll learn:**
+- Defining workflow stages with `wf.stage()`
+- Passing cumulative context between stages
+- Accessing cross-stage data (files, tools, timeline)
+- Composing complex pipelines
+
+**Use cases:**
+- Multi-step deployment pipelines
+- Code generation → review → fix workflows
+- Data processing pipelines
+- Progressive refinement automation
+
+**Key concepts:**
+- Stage definitions and ordering
+- Cumulative context accumulation
+- Cross-stage data access
+- Workflow composition
+
+---
+
+### [Loop Patterns](/guides/automation/loop-patterns/)
+
+Implement retry logic, iterative refinement, and convergence testing.
+
+**You'll learn:**
+- Using `wf.until()` for conditional loops
+- Implementing retry strategies
+- Testing for convergence
+- Iterative refinement patterns
+
+**Use cases:**
+- Retry failed operations with backoff
+- Iterative code improvement
+- Converge to quality thresholds
+- Progressive enhancement workflows
+
+**Key concepts:**
+- Condition checking
+- Loop termination strategies
+- Max iteration limits
+- State tracking across iterations
+
+---
+
+### [Error Handling](/guides/automation/error-handling/)
+
+Build resilient workflows that handle failures gracefully.
+
+**You'll learn:**
+- Error detection and classification
+- Recovery strategies
+- Fallback mechanisms
+- Graceful degradation patterns
+
+**Use cases:**
+- Fallback to simpler models on failure
+- Retry with different prompts
+- Skip failed stages with warnings
+- Aggregate partial results
+
+**Key concepts:**
+- Try-catch patterns for stages
+- Error classification
+- Recovery decision trees
+- State preservation on failure
+
+---
+
+## Related Documentation
+
+### Tutorials
+- [Your First Automation](/getting-started/first-automation/) - Step-by-step workflow creation
+
+### API Reference
+- [vibeWorkflow](/api/core/vibeworkflow/) - Workflow API
+- [WorkflowContext](/api/types/workflow-context/) - Context interface
+- [AgentExecution](/api/types/agent-execution/) - Execution monitoring
+
+### Concepts
+- [Dual API](/explanation/concepts/dual-api/) - vibeTest vs vibeWorkflow design
+- [Auto-Capture](/explanation/concepts/auto-capture/) - How context is captured
+
+### Other Guides
+- [Evaluation Guides](/guides/evaluation/) - Quality assessment for workflows
+- [Advanced Guides](/guides/advanced/) - MCP servers, cost optimization, multi-modal prompts

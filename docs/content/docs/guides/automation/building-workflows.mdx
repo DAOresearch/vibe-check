@@ -1,0 +1,606 @@
+---
+title: Building Workflows
+description: Create multi-stage automation pipelines with cumulative context and intelligent stage management
+sidebar:
+  order: 1
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers how to build production-grade automation pipelines with `vibeWorkflow`. You'll learn how to orchestrate multiple agents, manage cumulative context across stages, and build resilient workflows that handle complex tasks.
+
+<Aside type="tip">
+  **Prerequisites:** This guide assumes you're familiar with basic vibe-check concepts. If you're new, start with [Your First Workflow →](/getting-started/first-automation/).
+</Aside>
+
+## When to Use Workflows
+
+Use `vibeWorkflow` for:
+- **Production automation** - CI/CD pipelines, deployments, migrations
+- **Multi-stage tasks** - Tasks requiring sequential agent execution
+- **Context accumulation** - When later stages need data from earlier stages
+- **Error recovery** - Workflows that retry or adapt based on results
+
+Use `vibeTest` instead for:
+- **Quality gates** - Pass/fail validation with assertions
+- **Benchmarking** - Model comparison and evaluation
+- **Testing** - Verifying agent behavior
+
+---
+
+## Anatomy of a Workflow
+
+Every workflow has three core components:
+
+1. **Name** - Identifier for logs and reports
+2. **Function** - Receives `WorkflowContext` (`wf`)
+3. **Options** - Configuration like timeout and defaults
+
+```typescript
+import { vibeWorkflow } from '@dao/vibe-check';
+
+vibeWorkflow(
+  'deployment pipeline',        // 1. Name
+  async (wf) => {                // 2. Function (receives WorkflowContext)
+    await wf.stage('build', { prompt: '/build' });
+    await wf.stage('deploy', { prompt: '/deploy' });
+  },
+  {                              // 3. Options
+    timeout: 600_000,            // 10 minutes
+    defaults: {
+      workspace: '/path/to/repo',
+      model: 'claude-opus-4-20250514'
+    }
+  }
+);
+```
+
+---
+
+## Stage Management
+
+Stages are the building blocks of workflows. Each stage executes an agent and returns a `RunResult`.
+
+### Basic Stage Execution
+
+```typescript
+vibeWorkflow('simple pipeline', async (wf) => {
+  // Execute a stage
+  const result = await wf.stage('stage name', {
+    prompt: '/command',
+    workspace: '/optional/override'
+  });
+
+  // Access stage results
+  console.log('Files changed:', result.files.stats().total);
+  console.log('Cost:', result.metrics.cost.total);
+});
+```
+
+### Stage Naming Patterns
+
+Choose descriptive stage names that appear in logs and reports:
+
+```typescript
+vibeWorkflow('deployment', async (wf) => {
+  // ✅ Good: Clear, actionable names
+  await wf.stage('validate environment', { ... });
+  await wf.stage('run database migrations', { ... });
+  await wf.stage('deploy application', { ... });
+  await wf.stage('smoke test endpoints', { ... });
+
+  // ❌ Bad: Vague or uninformative
+  await wf.stage('step1', { ... });
+  await wf.stage('do stuff', { ... });
+  await wf.stage('stage', { ... });
+});
+```
+
+### Stage Dependencies
+
+Stages execute sequentially. Later stages can reference earlier results:
+
+```typescript
+vibeWorkflow('analysis pipeline', async (wf) => {
+  // Stage 1: Scan for vulnerabilities
+  const scan = await wf.stage('security scan', {
+    prompt: '/scan --output report.json'
+  });
+
+  // Stage 2: Use scan results in next stage
+  const fix = await wf.stage('fix vulnerabilities', {
+    prompt: `/fix issues from ${scan.bundleDir}/report.json`
+  });
+
+  // Stage 3: Verify fixes
+  const verify = await wf.stage('verify fixes', {
+    prompt: `/verify ${fix.files.changed().map(f => f.path).join(' ')}`
+  });
+});
+```
+
+<Aside type="note">
+  Each stage gets a unique `bundleDir` where artifacts are stored. Reference these paths to pass data between stages.
+</Aside>
+
+---
+
+## Cumulative Context
+
+Unlike tests (where each `runAgent` starts fresh), workflows **accumulate state** across all stages. Access cumulative data via `wf.files`, `wf.tools`, and `wf.timeline`.
+
+### File Changes
+
+Track all file changes across the workflow:
+
+```typescript
+vibeWorkflow('refactoring workflow', async (wf) => {
+  await wf.stage('extract utils', { prompt: '/extract-utils' });
+  await wf.stage('update imports', { prompt: '/update-imports' });
+  await wf.stage('fix tests', { prompt: '/fix-tests' });
+
+  // Access cumulative file changes
+  const allFiles = wf.files.changed();
+  console.log(`Total files modified: ${allFiles.length}`);
+
+  // Get specific file across all stages
+  const config = wf.files.get('vite.config.ts');
+  if (config) {
+    console.log('Config was changed in:', config.stage);
+  }
+
+  // Filter by glob pattern
+  const tests = wf.files.filter('**/*.test.ts');
+  console.log(`Test files affected: ${tests.length}`);
+
+  // Get statistics
+  const stats = wf.files.stats();
+  console.log('Added:', stats.added);
+  console.log('Modified:', stats.modified);
+  console.log('Deleted:', stats.deleted);
+});
+```
+
+### Tool Usage
+
+Track all tool calls across stages:
+
+```typescript
+vibeWorkflow('migration workflow', async (wf) => {
+  await wf.stage('analyze codebase', { prompt: '/analyze' });
+  await wf.stage('migrate syntax', { prompt: '/migrate' });
+
+  // Get all tool calls
+  const allTools = wf.tools.all();
+  console.log(`Total tools used: ${allTools.length}`);
+
+  // Filter by tool name
+  const edits = wf.tools.filter('Edit');
+  console.log(`Total edits: ${edits.length}`);
+
+  // Check for specific tools
+  const usedBash = wf.tools.used('Bash');
+  if (usedBash) {
+    console.log('Workflow executed shell commands');
+  }
+
+  // Get success/failure counts
+  console.log('Succeeded:', wf.tools.succeeded().length);
+  console.log('Failed:', wf.tools.failed().length);
+});
+```
+
+### Timeline
+
+Access a unified timeline of events across all stages:
+
+```typescript
+vibeWorkflow('deployment pipeline', async (wf) => {
+  await wf.stage('build', { prompt: '/build' });
+  await wf.stage('deploy', { prompt: '/deploy' });
+
+  // Iterate over all events
+  for await (const { stage, evt } of wf.timeline.events()) {
+    console.log(`[${stage}] ${evt.type} at ${evt.timestamp}`);
+
+    if (evt.type === 'tool_use') {
+      console.log(`  Tool: ${evt.toolName}`);
+    }
+  }
+});
+```
+
+---
+
+## Configuration and Defaults
+
+Set workflow-level defaults that apply to all stages, with per-stage overrides when needed.
+
+### Workspace Configuration
+
+```typescript
+vibeWorkflow('monorepo deployment', async (wf) => {
+  // All stages inherit workspace from defaults
+  await wf.stage('build app', { prompt: '/build' });
+  await wf.stage('run tests', { prompt: '/test' });
+
+  // Override for specific stage
+  await wf.stage('deploy docs', {
+    prompt: '/deploy',
+    workspace: '/path/to/docs-repo'  // Different repo
+  });
+}, {
+  defaults: {
+    workspace: '/path/to/app-repo'  // Default for most stages
+  }
+});
+```
+
+### Model Selection
+
+```typescript
+vibeWorkflow('cost-optimized pipeline', async (wf) => {
+  // Simple tasks use faster model (from defaults)
+  await wf.stage('format code', { prompt: '/format' });
+  await wf.stage('update docs', { prompt: '/update-docs' });
+
+  // Complex task uses more capable model
+  await wf.stage('refactor architecture', {
+    prompt: '/refactor --scope=architecture',
+    model: 'claude-opus-4-20250514'  // Override for this stage
+  });
+}, {
+  defaults: {
+    model: 'claude-sonnet-4-5-20250929'  // Fast model for most stages
+  }
+});
+```
+
+### Timeout Management
+
+```typescript
+vibeWorkflow('long-running migration', async (wf) => {
+  // Each stage gets 10-minute timeout
+  await wf.stage('analyze', { prompt: '/analyze' });
+  await wf.stage('migrate', { prompt: '/migrate' });
+  await wf.stage('verify', { prompt: '/verify' });
+}, {
+  timeout: 600_000  // 10 minutes for entire workflow
+});
+```
+
+<Aside type="caution">
+  The workflow timeout applies to the **entire workflow**, not individual stages. If you need per-stage timeouts, use the `timeout` option in `RunAgentOptions`.
+</Aside>
+
+---
+
+## Error Handling
+
+Workflows handle errors differently than tests. Instead of failing immediately, they log errors and continue.
+
+### Handling Stage Failures
+
+```typescript
+vibeWorkflow('resilient deployment', async (wf) => {
+  try {
+    const build = await wf.stage('build', { prompt: '/build' });
+
+    // Check for errors in logs
+    if (build.logs.some(log => log.includes('ERROR'))) {
+      console.error('Build had errors, aborting deployment');
+      return;  // Exit workflow early
+    }
+
+    await wf.stage('deploy', { prompt: '/deploy' });
+  } catch (error) {
+    console.error('Deployment failed:', error);
+    // Optionally run cleanup stage
+    await wf.stage('rollback', { prompt: '/rollback' });
+  }
+});
+```
+
+### Conditional Stages
+
+Execute stages based on previous results:
+
+```typescript
+vibeWorkflow('conditional pipeline', async (wf) => {
+  const lint = await wf.stage('lint', { prompt: '/lint' });
+
+  // Only fix if linting found issues
+  const issues = lint.files.changed();
+  if (issues.length > 0) {
+    await wf.stage('fix lint issues', {
+      prompt: `/fix ${issues.map(f => f.path).join(' ')}`
+    });
+  }
+
+  const test = await wf.stage('test', { prompt: '/test' });
+
+  // Deploy only if tests passed
+  const testsPassed = test.tools
+    .filter('Bash')
+    .every(t => t.result?.includes('PASS'));
+
+  if (testsPassed) {
+    await wf.stage('deploy', { prompt: '/deploy' });
+  } else {
+    console.log('Tests failed, skipping deployment');
+  }
+});
+```
+
+### Retry Logic
+
+See [Loop Patterns →](/guides/automation/loop-patterns/) for detailed retry strategies.
+
+---
+
+## Passing Data Between Stages
+
+There are multiple ways to pass data between stages:
+
+### 1. Bundle Directory References
+
+Each stage has a `bundleDir` containing artifacts:
+
+```typescript
+vibeWorkflow('data pipeline', async (wf) => {
+  const extract = await wf.stage('extract data', {
+    prompt: '/extract --output data.json'
+  });
+
+  // Reference the bundle directory in next stage
+  const transform = await wf.stage('transform data', {
+    prompt: `/transform ${extract.bundleDir}/data.json`
+  });
+
+  const load = await wf.stage('load data', {
+    prompt: `/load ${transform.bundleDir}/transformed.json`
+  });
+});
+```
+
+### 2. File Content Access
+
+Read file content directly from results:
+
+```typescript
+vibeWorkflow('config pipeline', async (wf) => {
+  const generate = await wf.stage('generate config', {
+    prompt: '/generate-config'
+  });
+
+  // Get the generated file
+  const configFile = generate.files.get('config.json');
+  const configContent = await configFile?.after?.text();
+
+  if (configContent) {
+    const config = JSON.parse(configContent);
+
+    // Use config data in next stage
+    await wf.stage('apply config', {
+      prompt: `/apply --env=${config.environment}`
+    });
+  }
+});
+```
+
+### 3. Cumulative Context
+
+Use workflow-level context to track state:
+
+```typescript
+vibeWorkflow('incremental builder', async (wf) => {
+  await wf.stage('build step 1', { prompt: '/build-ui' });
+  await wf.stage('build step 2', { prompt: '/build-api' });
+  await wf.stage('build step 3', { prompt: '/build-infra' });
+
+  // Access all changed files across all stages
+  const allChanges = wf.files.changed();
+
+  // Package everything
+  await wf.stage('package', {
+    prompt: `/package ${allChanges.map(f => f.path).join(' ')}`
+  });
+});
+```
+
+---
+
+## Advanced Patterns
+
+### Parallel-Style Execution
+
+While stages execute sequentially, you can structure independent operations:
+
+```typescript
+vibeWorkflow('multi-target deployment', async (wf) => {
+  // Build once
+  const build = await wf.stage('build', { prompt: '/build' });
+
+  // Deploy to each environment (sequential but independent)
+  const staging = await wf.stage('deploy staging', {
+    prompt: `/deploy --target=staging --artifact=${build.bundleDir}/dist`
+  });
+
+  const production = await wf.stage('deploy production', {
+    prompt: `/deploy --target=production --artifact=${build.bundleDir}/dist`
+  });
+
+  console.log('Deployed to:', staging.workspace, production.workspace);
+});
+```
+
+<Aside type="note">
+  Stages always execute sequentially. If you need true parallelism, run multiple workflows concurrently using `vitest --pool=forks`.
+</Aside>
+
+### Dynamic Stage Names
+
+Generate stage names programmatically:
+
+```typescript
+vibeWorkflow('multi-service deployment', async (wf) => {
+  const services = ['auth', 'api', 'worker', 'frontend'];
+
+  for (const service of services) {
+    await wf.stage(`deploy ${service}`, {
+      prompt: `/deploy ${service}`,
+      workspace: `/path/to/${service}`
+    });
+  }
+
+  // Access by service name
+  const authDeployment = wf.files.filter('auth/**/*');
+  console.log(`Auth files changed: ${authDeployment.length}`);
+});
+```
+
+### Validation Gates
+
+Add validation between stages:
+
+```typescript
+vibeWorkflow('safe deployment', async (wf) => {
+  const build = await wf.stage('build', { prompt: '/build' });
+
+  // Validate build artifacts
+  const distFiles = build.files.filter('dist/**/*');
+  if (distFiles.length === 0) {
+    throw new Error('Build produced no output files');
+  }
+
+  const test = await wf.stage('test', { prompt: '/test' });
+
+  // Validate test results
+  const testPassed = test.tools
+    .filter('Bash')
+    .every(t => !t.result?.includes('FAIL'));
+
+  if (!testPassed) {
+    throw new Error('Tests failed, aborting deployment');
+  }
+
+  await wf.stage('deploy', { prompt: '/deploy' });
+});
+```
+
+---
+
+## Best Practices
+
+### 1. Use Descriptive Stage Names
+
+Stage names appear in logs, reports, and timelines. Make them informative:
+
+```typescript
+// ✅ Good
+await wf.stage('validate database connection', { ... });
+await wf.stage('run database migrations', { ... });
+await wf.stage('seed test data', { ... });
+
+// ❌ Bad
+await wf.stage('step1', { ... });
+await wf.stage('db', { ... });
+await wf.stage('do thing', { ... });
+```
+
+### 2. Set Reasonable Defaults
+
+Configure workspace and model at the workflow level:
+
+```typescript
+vibeWorkflow('pipeline', async (wf) => {
+  // Stages inherit sensible defaults
+  await wf.stage('build', { prompt: '/build' });
+  await wf.stage('test', { prompt: '/test' });
+}, {
+  defaults: {
+    workspace: process.cwd(),
+    model: 'claude-sonnet-4-5-20250929'
+  }
+});
+```
+
+### 3. Handle Errors Gracefully
+
+Don't let one stage failure crash the entire workflow:
+
+```typescript
+vibeWorkflow('robust pipeline', async (wf) => {
+  let buildSucceeded = false;
+
+  try {
+    await wf.stage('build', { prompt: '/build' });
+    buildSucceeded = true;
+  } catch (error) {
+    console.error('Build failed:', error);
+  }
+
+  if (buildSucceeded) {
+    await wf.stage('deploy', { prompt: '/deploy' });
+  } else {
+    await wf.stage('notify failure', { prompt: '/notify build-failed' });
+  }
+});
+```
+
+### 4. Log Meaningful Metrics
+
+Use workflow context to report results:
+
+```typescript
+vibeWorkflow('metrics pipeline', async (wf) => {
+  const start = Date.now();
+
+  await wf.stage('process data', { prompt: '/process' });
+
+  const duration = Date.now() - start;
+  const stats = wf.files.stats();
+  const totalCost = wf.timeline.events()
+    .reduce((sum, { evt }) => sum + (evt.cost?.total || 0), 0);
+
+  console.log(`Pipeline completed in ${duration}ms`);
+  console.log(`Files changed: ${stats.total}`);
+  console.log(`Total cost: $${totalCost.toFixed(4)}`);
+});
+```
+
+### 5. Reference Bundle Directories
+
+Use `bundleDir` to pass artifacts between stages:
+
+```typescript
+vibeWorkflow('artifact pipeline', async (wf) => {
+  const build = await wf.stage('build', { prompt: '/build' });
+
+  // ✅ Good: Reference bundle directory
+  await wf.stage('package', {
+    prompt: `/package ${build.bundleDir}/dist`
+  });
+
+  // ❌ Bad: Hardcoded paths
+  await wf.stage('package', {
+    prompt: '/package .vibe-bundles/some-id/dist'
+  });
+});
+```
+
+---
+
+## What's Next?
+
+Now that you understand workflow fundamentals, explore:
+
+- **[Loop Patterns →](/guides/automation/loop-patterns/)** - Implement retries and iterative workflows
+- **[Error Handling →](/guides/automation/error-handling/)** - Build resilient workflows
+- **[Cost Optimization →](/guides/advanced/cost-optimization/)** - Reduce workflow costs
+
+Or dive into the API reference:
+
+- **[vibeWorkflow API →](/api/core/vibeworkflow/)** - Complete API documentation
+- **[WorkflowContext →](/api/types/workflow-context/)** - Context methods and properties
+- **[RunResult →](/api/types/run-result/)** - Stage result interface

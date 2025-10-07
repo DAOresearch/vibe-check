@@ -1,0 +1,601 @@
+---
+title: Cumulative State Tracking
+description: Access aggregated data across multiple agent runs in a single test
+sidebar:
+  order: 2
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+**Cumulative state** allows you to access **aggregated data** from multiple `runAgent()` calls within a single test. This is essential for multi-step workflows where you need to validate the **combined effect** of several agent interactions.
+
+<Aside type="tip">
+  **Use Case:** Test multi-stage processes (e.g., implement feature → add tests → add docs) and verify the complete outcome.
+</Aside>
+
+---
+
+## Why Cumulative State?
+
+**Problem:** Complex tasks require multiple agent runs. You need to validate the **cumulative result**, not just individual runs.
+
+### Scenario: Multi-Step Feature Development
+
+```typescript
+vibeTest('implement, test, and document feature', async ({ runAgent, expect }) => {
+  // Step 1: Implement feature
+  const step1 = await runAgent({
+    prompt: '/implement user authentication'
+  });
+
+  // Step 2: Add tests
+  const step2 = await runAgent({
+    prompt: '/add tests for authentication'
+  });
+
+  // Step 3: Add documentation
+  const step3 = await runAgent({
+    prompt: '/document authentication API'
+  });
+
+  // ❌ Problem: How do we check ALL files changed across all 3 steps?
+  // step1.files only has files from step 1
+  // step2.files only has files from step 2
+  // step3.files only has files from step 3
+});
+```
+
+**Solution:** Use the **test context's cumulative state** to access aggregated data:
+
+```typescript
+vibeTest('implement, test, and document feature', async ({ runAgent, expect, files }) => {
+  // Step 1: Implement
+  await runAgent({ prompt: '/implement user authentication' });
+
+  // Step 2: Test
+  await runAgent({ prompt: '/add tests for authentication' });
+
+  // Step 3: Document
+  await runAgent({ prompt: '/document authentication API' });
+
+  // ✅ Access cumulative files from ALL runs
+  const allFiles = files.changed();
+  expect(allFiles).toContainEqual(
+    expect.objectContaining({ path: 'src/auth.ts' })     // From step 1
+  );
+  expect(allFiles).toContainEqual(
+    expect.objectContaining({ path: 'tests/auth.test.ts' }) // From step 2
+  );
+  expect(allFiles).toContainEqual(
+    expect.objectContaining({ path: 'docs/auth.md' })    // From step 3
+  );
+});
+```
+
+---
+
+## Cumulative State API
+
+The test context provides three cumulative state accessors:
+
+### 1. Context Files (`files`)
+
+Access **all file changes** across all `runAgent()` calls in the test.
+
+```typescript
+vibeTest('track all file changes', async ({ runAgent, files }) => {
+  await runAgent({ prompt: '/refactor module A' });
+  await runAgent({ prompt: '/refactor module B' });
+
+  // Get all files changed across both runs
+  const allChanges = files.changed();
+  console.log(`Total files changed: ${allChanges.length}`);
+
+  // Get specific file
+  const moduleA = files.get('src/moduleA.ts');
+  console.log(`Module A status: ${moduleA?.changeType}`);
+
+  // Filter by glob
+  const srcFiles = files.filter('src/**/*.ts');
+  console.log(`Changed TypeScript files: ${srcFiles.length}`);
+
+  // Get statistics
+  const stats = files.stats();
+  console.log(`Added: ${stats.added}, Modified: ${stats.modified}`);
+});
+```
+
+**API:**
+
+```typescript
+interface CumulativeFiles {
+  /** Get all files changed across all runs */
+  changed(): FileChange[];
+
+  /** Get specific file by path */
+  get(path: string): FileChange | undefined;
+
+  /** Filter files by glob pattern(s) */
+  filter(glob: string | string[]): FileChange[];
+
+  /** Get aggregate statistics */
+  stats(): {
+    added: number;
+    modified: number;
+    deleted: number;
+    renamed: number;
+    total: number;
+  };
+}
+```
+
+### 2. Context Tools (`tools`)
+
+Access **all tool calls** across all `runAgent()` calls in the test.
+
+```typescript
+vibeTest('track all tool usage', async ({ runAgent, tools }) => {
+  await runAgent({ prompt: '/task 1' });
+  await runAgent({ prompt: '/task 2' });
+
+  // Get all tool calls
+  const allCalls = tools.all();
+  console.log(`Total tool calls: ${allCalls.length}`);
+
+  // Get tools by name
+  const editCalls = tools.byName('Edit');
+  console.log(`Edit calls: ${editCalls.length}`);
+
+  // Check for failures
+  const failed = tools.failed();
+  if (failed.length > 0) {
+    console.warn(`${failed.length} tool calls failed`);
+  }
+});
+```
+
+**API:**
+
+```typescript
+interface CumulativeTools {
+  /** Get all tool calls across all runs */
+  all(): ToolCall[];
+
+  /** Get tool calls by name */
+  byName(name: string): ToolCall[];
+
+  /** Get failed tool calls */
+  failed(): ToolCall[];
+
+  /** Get successful tool calls */
+  succeeded(): ToolCall[];
+}
+```
+
+### 3. Context Timeline (`timeline`)
+
+Access **all timeline events** (TODOs, notifications, errors) across all runs.
+
+```typescript
+vibeTest('track timeline events', async ({ runAgent, timeline }) => {
+  await runAgent({ prompt: '/task 1' });
+  await runAgent({ prompt: '/task 2' });
+
+  // Get all events
+  const allEvents = timeline.all();
+
+  // Get TODO events
+  const todos = timeline.todos();
+  const completedTodos = todos.filter(t => t.status === 'completed');
+  console.log(`Completed TODOs: ${completedTodos.length}`);
+
+  // Get notifications
+  const notifications = timeline.notifications();
+  console.log(`Notifications: ${notifications.length}`);
+
+  // Get errors
+  const errors = timeline.errors();
+  if (errors.length > 0) {
+    console.error('Errors occurred:', errors);
+  }
+});
+```
+
+**API:**
+
+```typescript
+interface CumulativeTimeline {
+  /** Get all timeline events */
+  all(): TimelineEvent[];
+
+  /** Get TODO events */
+  todos(): Array<{
+    text: string;
+    status: 'pending' | 'in_progress' | 'completed';
+    timestamp: number;
+  }>;
+
+  /** Get notification events */
+  notifications(): Array<{
+    message: string;
+    type?: string;
+    timestamp: number;
+  }>;
+
+  /** Get error events */
+  errors(): Array<{
+    message: string;
+    timestamp: number;
+  }>;
+}
+```
+
+---
+
+## Common Patterns
+
+### Pattern 1: Multi-Step Workflow Validation
+
+**Goal:** Verify complete outcome of multi-step process.
+
+```typescript
+vibeTest('full feature development', async ({ runAgent, files, expect }) => {
+  // Step 1: Implement
+  await runAgent({
+    prompt: 'Implement user authentication in src/auth.ts'
+  });
+
+  // Step 2: Add tests
+  await runAgent({
+    prompt: 'Add comprehensive tests for authentication'
+  });
+
+  // Step 3: Add documentation
+  await runAgent({
+    prompt: 'Document authentication API in docs/auth.md'
+  });
+
+  // Validate cumulative result
+  const allFiles = files.changed();
+
+  expect(allFiles).toHaveLength(3);
+  expect(files.get('src/auth.ts')).toBeDefined();
+  expect(files.get('tests/auth.test.ts')).toBeDefined();
+  expect(files.get('docs/auth.md')).toBeDefined();
+
+  // Check file statistics
+  const stats = files.stats();
+  expect(stats.added).toBe(3);
+  expect(stats.deleted).toBe(0);
+});
+```
+
+### Pattern 2: Iterative Refinement
+
+**Goal:** Track changes across multiple refinement iterations.
+
+```typescript
+vibeTest('iterative code improvement', async ({ runAgent, files, tools, expect }) => {
+  // Initial implementation
+  await runAgent({ prompt: '/implement feature X' });
+
+  // Refinement 1: Fix type errors
+  await runAgent({ prompt: '/fix type errors' });
+
+  // Refinement 2: Add error handling
+  await runAgent({ prompt: '/add error handling' });
+
+  // Refinement 3: Optimize performance
+  await runAgent({ prompt: '/optimize performance' });
+
+  // Validate cumulative changes
+  const changedFiles = files.changed();
+  console.log(`Total iterations: 4`);
+  console.log(`Files modified: ${changedFiles.length}`);
+  console.log(`Tool calls: ${tools.all().length}`);
+
+  // Ensure no files were deleted during refinements
+  const deletions = changedFiles.filter(f => f.changeType === 'deleted');
+  expect(deletions).toHaveLength(0);
+});
+```
+
+### Pattern 3: Cross-Module Refactoring
+
+**Goal:** Validate changes across multiple modules/files.
+
+```typescript
+vibeTest('refactor across modules', async ({ runAgent, files, expect }) => {
+  // Refactor each module
+  await runAgent({ prompt: '/refactor src/moduleA.ts' });
+  await runAgent({ prompt: '/refactor src/moduleB.ts' });
+  await runAgent({ prompt: '/refactor src/moduleC.ts' });
+
+  // Validate all modules changed
+  const modules = ['src/moduleA.ts', 'src/moduleB.ts', 'src/moduleC.ts'];
+
+  for (const module of modules) {
+    const file = files.get(module);
+    expect(file).toBeDefined();
+    expect(file?.changeType).toBe('modified');
+  }
+
+  // Validate no unexpected changes
+  const srcFiles = files.filter('src/**/*.ts');
+  expect(srcFiles).toHaveLength(3); // Only the 3 modules
+});
+```
+
+### Pattern 4: Tool Usage Analysis
+
+**Goal:** Analyze tool usage patterns across multiple runs.
+
+```typescript
+vibeTest('analyze tool usage', async ({ runAgent, tools, expect }) => {
+  await runAgent({ prompt: '/implement feature with tests' });
+  await runAgent({ prompt: '/add documentation' });
+
+  // Get tool usage breakdown
+  const allTools = tools.all();
+  const toolCounts = new Map<string, number>();
+
+  for (const tool of allTools) {
+    toolCounts.set(tool.name, (toolCounts.get(tool.name) || 0) + 1);
+  }
+
+  console.log('Tool usage:');
+  for (const [name, count] of toolCounts) {
+    console.log(`  ${name}: ${count}`);
+  }
+
+  // Assertions on tool usage
+  expect(tools.byName('Edit').length).toBeGreaterThan(0);
+  expect(tools.byName('Read').length).toBeGreaterThan(0);
+  expect(tools.failed().length).toBeLessThan(3);
+});
+```
+
+### Pattern 5: Timeline Event Validation
+
+**Goal:** Verify TODO completion and error-free execution.
+
+```typescript
+vibeTest('validate timeline', async ({ runAgent, timeline, expect }) => {
+  await runAgent({ prompt: '/implement feature X' });
+  await runAgent({ prompt: '/add tests for feature X' });
+
+  // Check TODOs
+  const todos = timeline.todos();
+  const completed = todos.filter(t => t.status === 'completed');
+  const pending = todos.filter(t => t.status === 'pending');
+
+  console.log(`Completed TODOs: ${completed.length}`);
+  console.log(`Pending TODOs: ${pending.length}`);
+
+  expect(pending).toHaveLength(0); // All TODOs should be completed
+
+  // Check for errors
+  const errors = timeline.errors();
+  expect(errors).toHaveLength(0); // No errors should occur
+
+  // Check notifications
+  const notifications = timeline.notifications();
+  console.log(`Notifications: ${notifications.length}`);
+});
+```
+
+---
+
+## Cumulative vs Per-Run State
+
+Understanding when to use cumulative state vs per-run state:
+
+### Per-Run State (RunResult)
+
+**When:** Validate individual agent run.
+
+```typescript
+const result = await runAgent({ prompt: '/task' });
+
+// Per-run state
+expect(result).toCompleteAllTodos();
+expect(result.files.changed()).toHaveLength(2);
+expect(result.metrics.totalCostUsd).toBeLessThan(1.0);
+```
+
+**Use for:**
+- Validating single agent execution
+- Checking specific run metrics (cost, tokens, duration)
+- Per-run assertions (matchers like `toCompleteAllTodos()`)
+
+### Cumulative State (Context)
+
+**When:** Validate aggregate of multiple runs.
+
+```typescript
+vibeTest('multi-step', async ({ runAgent, files, tools }) => {
+  await runAgent({ prompt: '/task 1' });
+  await runAgent({ prompt: '/task 2' });
+
+  // Cumulative state
+  const allFiles = files.changed();
+  const allTools = tools.all();
+
+  expect(allFiles.length).toBeGreaterThan(0);
+  expect(tools.failed().length).toBeLessThan(5);
+});
+```
+
+**Use for:**
+- Multi-step workflows
+- Aggregate statistics (total files, total tool calls)
+- Cross-run validation
+
+---
+
+## Comparison Table
+
+| Feature | Per-Run (`RunResult`) | Cumulative (Context) |
+|---------|----------------------|----------------------|
+| **Scope** | Single `runAgent()` call | All `runAgent()` calls in test |
+| **Files** | `result.files.changed()` | `files.changed()` (context) |
+| **Tools** | `result.tools.all()` | `tools.all()` (context) |
+| **Timeline** | `result.timeline` | `timeline.all()` (context) |
+| **Metrics** | `result.metrics` | Sum across all runs |
+| **Matchers** | `expect(result).toXxx()` | Use standard `expect()` |
+
+---
+
+## Advanced Usage
+
+### Combining Per-Run and Cumulative
+
+Use both for granular validation:
+
+```typescript
+vibeTest('validate per-run and cumulative', async ({ runAgent, files, expect }) => {
+  // Run 1: Implement
+  const step1 = await runAgent({ prompt: '/implement auth' });
+  expect(step1).toCompleteAllTodos(); // Per-run matcher
+  expect(step1.files.changed()).toHaveLength(1); // Per-run state
+
+  // Run 2: Add tests
+  const step2 = await runAgent({ prompt: '/add tests' });
+  expect(step2).toCompleteAllTodos(); // Per-run matcher
+  expect(step2.files.changed()).toHaveLength(1); // Per-run state
+
+  // Cumulative validation
+  const allFiles = files.changed();
+  expect(allFiles).toHaveLength(2); // Cumulative state
+  expect(files.stats().added).toBe(2); // Cumulative statistics
+});
+```
+
+### State Reset Between Tests
+
+Cumulative state is **scoped to each test**. It resets between tests automatically.
+
+```typescript
+vibeTest('test 1', async ({ runAgent, files }) => {
+  await runAgent({ prompt: '/task' });
+  expect(files.changed()).toHaveLength(1);
+});
+
+vibeTest('test 2', async ({ runAgent, files }) => {
+  // files.changed() is empty at start (state reset)
+  await runAgent({ prompt: '/task' });
+  expect(files.changed()).toHaveLength(1);
+});
+```
+
+### Accessing Context in Watchers
+
+**Note:** Watchers receive `PartialRunResult` (per-run), not cumulative context.
+
+```typescript
+vibeTest('watcher with cumulative check', async ({ runAgent, files: contextFiles }) => {
+  await runAgent({ prompt: '/task 1' });
+
+  const execution = runAgent({ prompt: '/task 2' });
+
+  execution.watch(({ files: runFiles }) => {
+    // runFiles: current run only (PartialRunResult)
+    // contextFiles: all runs (cumulative)
+
+    const currentRunFiles = runFiles.changed();
+    const allFiles = contextFiles.changed();
+
+    console.log(`Current run: ${currentRunFiles.length} files`);
+    console.log(`Cumulative: ${allFiles.length} files`);
+  });
+
+  await execution;
+});
+```
+
+---
+
+## Best Practices
+
+<Steps>
+1. **Use cumulative for multi-step** - Always use context state for multi-run tests
+2. **Use per-run for single-step** - Use `RunResult` for single `runAgent()` tests
+3. **Combine when needed** - Validate both per-run and cumulative as appropriate
+4. **Check statistics** - Use `.stats()` for quick summaries
+5. **Filter with globs** - Use `files.filter('src/**')` for targeted validation
+6. **Verify no deletions** - Check `stats().deleted === 0` if files shouldn't be removed
+</Steps>
+
+---
+
+## Troubleshooting
+
+### Missing Files in Cumulative State
+
+**Problem:** `files.changed()` doesn't include expected files.
+
+**Cause:** Files were not actually changed by agent, or agent run failed before changes.
+
+**Solution:**
+- Check per-run `RunResult.files` to see what each run changed
+- Verify agent completed successfully (check logs)
+- Ensure workspace path is correct
+
+### Tool Count Mismatch
+
+**Problem:** `tools.all().length` doesn't match expected count.
+
+**Cause:** Some tool calls may have been skipped or failed silently.
+
+**Solution:**
+- Check `tools.failed()` for failed tool calls
+- Review per-run `RunResult.tools` to see exact tool sequence
+- Verify hook capture is complete (`result.hookCaptureStatus.complete`)
+
+### Timeline Events Missing
+
+**Problem:** `timeline.todos()` or `timeline.notifications()` is empty.
+
+**Cause:** Agent didn't emit those events, or hook capture failed.
+
+**Solution:**
+- Check per-run `RunResult.timeline` for individual run events
+- Verify agent actually created TODOs/notifications
+- Check `hookCaptureStatus` for capture issues
+
+---
+
+## See Also
+
+- [API Reference: VibeTestContext](/api/types/test-context/) - Full context interface
+- [API Reference: RunResult](/api/types/run-result/) - Per-run state interface
+- [Reactive Watchers](/guides/testing/reactive-watchers/) - Real-time assertions
+- [Your First Test](/getting-started/first-test/) - Basic test patterns
+
+---
+
+## Quick Reference
+
+```typescript
+vibeTest('multi-step example', async ({ runAgent, files, tools, timeline }) => {
+  // Multiple runs
+  await runAgent({ prompt: '/step 1' });
+  await runAgent({ prompt: '/step 2' });
+
+  // Cumulative files
+  const allFiles = files.changed();
+  const srcFiles = files.filter('src/**');
+  const stats = files.stats();
+  const specific = files.get('src/main.ts');
+
+  // Cumulative tools
+  const allTools = tools.all();
+  const editCalls = tools.byName('Edit');
+  const failed = tools.failed();
+
+  // Cumulative timeline
+  const todos = timeline.todos();
+  const notifications = timeline.notifications();
+  const errors = timeline.errors();
+});
+```

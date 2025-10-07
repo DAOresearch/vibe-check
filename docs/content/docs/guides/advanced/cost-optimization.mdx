@@ -1,0 +1,626 @@
+---
+title: Cost Optimization
+description: Reduce LLM costs through smart model selection, prompt engineering, and efficient testing strategies
+sidebar:
+  order: 2
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers strategies for optimizing costs when using vibe-check. You'll learn how to choose the right models, write efficient prompts, and structure tests to minimize token usage and API calls.
+
+<Aside type="tip">
+  **Track Costs:** Use the `VibeCostReporter` to monitor spending across tests. See metrics via `result.metrics.cost.total`.
+</Aside>
+
+## Understanding Costs
+
+Vibe-check costs come from:
+1. **LLM API calls** - Agent execution (main cost)
+2. **Judge calls** - LLM-based evaluation
+3. **Token usage** - Both input and output tokens
+
+### Cost Breakdown
+
+```typescript
+vibeTest('cost tracking', async ({ runAgent, judge }) => {
+  const result = await runAgent({
+    prompt: '/implement feature'
+  });
+
+  // Access cost metrics
+  console.log('Agent cost:', result.metrics.cost.total);
+  console.log('Input tokens:', result.metrics.tokens.input);
+  console.log('Output tokens:', result.metrics.tokens.output);
+
+  const judgment = await judge(result, { rubric });
+
+  // Judge calls add additional cost
+  console.log('Judge cost: ~$0.001-0.005');
+});
+```
+
+---
+
+## Model Selection
+
+Choosing the right model is the biggest cost lever:
+
+### Model Cost Comparison
+
+| Model | Cost (Input) | Cost (Output) | Speed | Quality | Best For |
+|-------|--------------|---------------|-------|---------|----------|
+| **Haiku** | $0.25/MTok | $1.25/MTok | ⚡⚡⚡ | ⭐⭐ | Simple tasks, formatting |
+| **Sonnet** | $3.00/MTok | $15.00/MTok | ⚡⚡ | ⭐⭐⭐ | Most tasks, good balance |
+| **Opus** | $15.00/MTok | $75.00/MTok | ⚡ | ⭐⭐⭐⭐ | Complex reasoning, critical tasks |
+
+<Aside type="note">
+  **MTok** = Million tokens. Costs are approximate and change over time. Check [anthropic.com/pricing](https://anthropic.com/pricing) for current rates.
+</Aside>
+
+### Task-Based Model Selection
+
+```typescript
+import { defineAgent } from '@dao/vibe-check';
+
+// Simple tasks: Use Haiku (cheapest)
+const formatterAgent = defineAgent({
+  name: 'formatter',
+  model: 'claude-3-5-haiku-20241022'
+});
+
+vibeTest('format code', async ({ runAgent }) => {
+  const result = await runAgent({
+    agent: formatterAgent,
+    prompt: '/format src/**/*.ts'
+  });
+  // Cost: ~$0.01
+});
+
+// Standard tasks: Use Sonnet (balanced)
+const developerAgent = defineAgent({
+  name: 'developer',
+  model: 'claude-sonnet-4-5-20250929'
+});
+
+vibeTest('implement feature', async ({ runAgent }) => {
+  const result = await runAgent({
+    agent: developerAgent,
+    prompt: '/implement user authentication'
+  });
+  // Cost: ~$0.05
+});
+
+// Complex tasks: Use Opus (best quality)
+const architectAgent = defineAgent({
+  name: 'architect',
+  model: 'claude-opus-4-20250514'
+});
+
+vibeTest('design architecture', async ({ runAgent }) => {
+  const result = await runAgent({
+    agent: architectAgent,
+    prompt: '/design microservices architecture for e-commerce platform'
+  });
+  // Cost: ~$0.25
+});
+```
+
+### Multi-Stage Model Strategy
+
+Use different models for different stages:
+
+```typescript
+vibeWorkflow('cost-optimized pipeline', async (wf) => {
+  // Stage 1: Simple analysis with Haiku
+  const analysis = await wf.stage('analyze', {
+    agent: formatterAgent,  // Haiku
+    prompt: '/analyze codebase structure'
+  });
+
+  // Stage 2: Implementation with Sonnet
+  const implementation = await wf.stage('implement', {
+    agent: developerAgent,  // Sonnet
+    prompt: '/implement features based on analysis'
+  });
+
+  // Stage 3: Only use Opus if needed
+  const needsReview = implementation.files.stats().total > 20;
+  if (needsReview) {
+    await wf.stage('architecture review', {
+      agent: architectAgent,  // Opus
+      prompt: '/review architecture decisions'
+    });
+  }
+});
+```
+
+---
+
+## Prompt Optimization
+
+Efficient prompts reduce token usage:
+
+### 1. Be Concise
+
+```typescript
+// ✅ Good: Concise prompt (low token usage)
+prompt: '/refactor src/utils.ts --improve-readability'
+
+// ❌ Bad: Verbose prompt (high token usage)
+prompt: `
+  Please take a look at the src/utils.ts file and refactor it to
+  improve readability. Make sure the code is easier to read and
+  understand. Use descriptive variable names and add comments where
+  necessary. Follow best practices for code organization.
+`
+```
+
+### 2. Use Slash Commands
+
+Leverage Claude Code slash commands for efficiency:
+
+```typescript
+// ✅ Good: Slash command (optimized by Claude Code)
+prompt: '/test'
+
+// ❌ Bad: Natural language (more tokens)
+prompt: 'Run all the tests in the project and show me the results'
+```
+
+### 3. Avoid Redundant Context
+
+```typescript
+// ✅ Good: Reference files by path
+prompt: '/analyze src/auth.ts and suggest improvements'
+
+// ❌ Bad: Include file content in prompt
+const fileContent = await readFile('src/auth.ts');
+prompt: `Analyze this code and suggest improvements:\n\n${fileContent}`
+// Wastes tokens: Claude Code already has file access
+```
+
+---
+
+## Testing Strategy
+
+### 1. Limit Test Scope
+
+```typescript
+// ✅ Good: Test specific behavior
+vibeTest('authentication works', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement JWT token validation'
+  });
+  expect(result.files).toHaveChangedFiles(['src/auth.ts']);
+});
+
+// ❌ Bad: Overly broad test
+vibeTest('build entire app', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/build complete authentication system with database, email, 2FA, and admin panel'
+  });
+  // Expensive: too much scope
+});
+```
+
+### 2. Use Budget Limits
+
+Enforce cost constraints:
+
+```typescript
+vibeTest('cost-constrained test', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/refactor',
+    maxTurns: 5  // Limit conversation turns
+  });
+
+  // Fail if too expensive
+  expect(result).toStayUnderCost(0.10);  // Max $0.10
+});
+```
+
+### 3. Skip Expensive Tests in CI
+
+```typescript
+import { test } from 'vitest';
+
+// Run expensive tests only when explicitly requested
+test.skipIf(!process.env.RUN_EXPENSIVE_TESTS)(
+  'expensive benchmark',
+  async ({ runAgent }) => {
+    // Costs $1.00+
+    const result = await runAgent({
+      agent: opusAgent,
+      prompt: '/comprehensive analysis'
+    });
+  }
+);
+```
+
+---
+
+## Judge Optimization
+
+Judges add cost. Use them wisely:
+
+### 1. Use Simple Matchers First
+
+```typescript
+// ✅ Good: Use matchers for simple checks
+expect(result.files.changed().length).toBeGreaterThan(0);
+expect(result).toHaveChangedFiles(['src/index.ts']);
+
+// ❌ Bad: Use judge for simple checks
+const judgment = await judge(result, {
+  rubric: {
+    criteria: [{ name: 'files_changed', description: 'Agent changed files' }]
+  }
+});
+// Wastes $0.001-0.005 on something a matcher can do for free
+```
+
+### 2. Combine Criteria
+
+```typescript
+// ✅ Good: One judge call with multiple criteria
+const judgment = await judge(result, {
+  rubric: {
+    criteria: [
+      { name: 'correctness', description: 'Works correctly' },
+      { name: 'quality', description: 'Good code quality' },
+      { name: 'testing', description: 'Has tests' }
+    ]
+  }
+});
+
+// ❌ Bad: Multiple judge calls
+const correctness = await judge(result, {
+  rubric: { criteria: [{ name: 'correctness', description: '...' }] }
+});
+const quality = await judge(result, {
+  rubric: { criteria: [{ name: 'quality', description: '...' }] }
+});
+const testing = await judge(result, {
+  rubric: { criteria: [{ name: 'testing', description: '...' }] }
+});
+// 3x the cost!
+```
+
+### 3. Use Lightweight Rubrics
+
+```typescript
+// ✅ Good: Focused rubric
+const rubric = {
+  criteria: [
+    { name: 'correctness', description: 'Feature works as specified' }
+  ]
+};
+
+// ❌ Bad: Overly detailed rubric
+const rubric = {
+  criteria: [
+    { name: 'correctness', description: 'Feature works...' },
+    { name: 'naming', description: 'Variables named well...' },
+    { name: 'comments', description: 'Code has comments...' },
+    { name: 'formatting', description: 'Code is formatted...' },
+    { name: 'structure', description: 'Code is well-structured...' }
+    // 5 criteria = more tokens = higher cost
+  ]
+};
+```
+
+### 4. Use Haiku for Judges
+
+```typescript
+// ✅ Good: Use Haiku for simple judgments
+const judgment = await judge(result, {
+  rubric: {
+    criteria: [
+      { name: 'works', description: 'Feature works correctly' }
+    ],
+    model: 'claude-3-5-haiku-20241022'  // Cheaper judge
+  }
+});
+
+// ⚠️ Use Sonnet/Opus only for complex evaluations
+const judgment = await judge(result, {
+  rubric: complexRubric,
+  model: 'claude-sonnet-4-5-20250929'  // More expensive but higher quality
+});
+```
+
+---
+
+## Workflow Optimization
+
+### 1. Limit Loop Iterations
+
+```typescript
+// ✅ Good: Set reasonable max iterations
+const results = await wf.until(
+  (latest) => latest.files.changed().length > 0,
+  async () => await wf.stage('fix', { prompt: '/fix' }),
+  { maxIterations: 3 }  // Limit retries
+);
+
+// ❌ Bad: Unlimited retries
+const results = await wf.until(
+  predicate,
+  body,
+  { maxIterations: 100 }  // Could cost $10+
+);
+```
+
+### 2. Early Exit on Success
+
+```typescript
+vibeWorkflow('efficient pipeline', async (wf) => {
+  const build = await wf.stage('build', { prompt: '/build' });
+
+  // Stop early if build failed
+  if (!build.files.get('dist/index.js')) {
+    console.log('Build failed, skipping remaining stages');
+    return;  // Save cost by not running deploy
+  }
+
+  await wf.stage('deploy', { prompt: '/deploy' });
+});
+```
+
+### 3. Conditional Stages
+
+```typescript
+vibeWorkflow('conditional stages', async (wf) => {
+  const analysis = await wf.stage('analyze', { prompt: '/analyze' });
+
+  // Only run expensive optimization if needed
+  const needsOptimization = analysis.files.filter('**/*.ts').length > 50;
+
+  if (needsOptimization) {
+    await wf.stage('optimize', {
+      agent: opusAgent,  // Expensive model
+      prompt: '/optimize large codebase'
+    });
+  } else {
+    console.log('Skipping optimization (small codebase)');
+  }
+});
+```
+
+---
+
+## Matrix Testing Optimization
+
+### 1. Limit Combinations
+
+```typescript
+// ✅ Good: Focused matrix (6 tests)
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent],
+    task: ['simple', 'medium', 'complex']
+  },
+  test: ({ agent, task }) => {
+    vibeTest(`${agent.name} - ${task}`, async ({ runAgent }) => {
+      // ...
+    });
+  }
+});
+// 2 agents × 3 tasks = 6 tests
+
+// ❌ Bad: Explosion (120 tests)
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, haikuAgent, opusAgent],
+    maxTurns: [4, 8, 16, 32],
+    prompt: [/* 10 prompts */]
+  },
+  test: ({ agent, maxTurns, prompt }) => {
+    vibeTest(`${agent.name}`, async ({ runAgent }) => {
+      // ...
+    });
+  }
+});
+// 3 × 4 × 10 = 120 tests (could cost $50+)
+```
+
+### 2. Use Cheap Models for Exploration
+
+```typescript
+// Step 1: Explore with cheap model
+defineTestSuite({
+  matrix: {
+    agent: [haikuAgent],  // Cheap
+    prompt: [/* 20 prompt variations */]
+  },
+  test: ({ agent, prompt }) => {
+    vibeTest(`${prompt}`, async ({ runAgent }) => {
+      // Find best prompt cheaply
+    });
+  }
+});
+
+// Step 2: Validate winner with expensive model
+vibeTest('validate best prompt', async ({ runAgent }) => {
+  const result = await runAgent({
+    agent: opusAgent,  // Expensive, but only 1 test
+    prompt: BEST_PROMPT_FROM_STEP_1
+  });
+});
+```
+
+---
+
+## Monitoring and Reporting
+
+### Track Costs Across Tests
+
+```typescript
+import { afterAll } from 'vitest';
+
+const costs: number[] = [];
+
+vibeTest('test 1', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '/task1' });
+  costs.push(result.metrics.cost.total);
+});
+
+vibeTest('test 2', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '/task2' });
+  costs.push(result.metrics.cost.total);
+});
+
+afterAll(() => {
+  const total = costs.reduce((sum, cost) => sum + cost, 0);
+  console.log(`\nTotal cost: $${total.toFixed(4)}`);
+
+  if (total > 1.0) {
+    console.warn('⚠️  Cost exceeded $1.00');
+  }
+});
+```
+
+### Use Cost Reporter
+
+Enable built-in cost tracking:
+
+```typescript
+// vitest.config.ts
+export default {
+  test: {
+    reporters: [
+      'default',
+      '@dao/vibe-check/reporters/cost'  // Cost reporter
+    ]
+  }
+};
+```
+
+**Output:**
+```
+Test Results:
+ ✓ tests/feature.test.ts (3 tests) - $0.0234
+
+Cost Summary:
+  Total: $0.0234
+  Average per test: $0.0078
+```
+
+---
+
+## Cost-Saving Checklist
+
+### Before Running Tests
+
+- [ ] Use cheapest model that meets quality needs
+- [ ] Write concise prompts (avoid redundant context)
+- [ ] Set `maxTurns` limits
+- [ ] Use `toStayUnderCost()` matcher for budgets
+- [ ] Skip expensive tests in CI (unless needed)
+
+### When Using Judges
+
+- [ ] Use matchers for simple checks
+- [ ] Combine criteria into one rubric
+- [ ] Use Haiku for simple evaluations
+- [ ] Limit rubric criteria (3-5 max)
+- [ ] Judge only when necessary
+
+### When Using Workflows
+
+- [ ] Set `maxIterations` on loops
+- [ ] Exit early on failure
+- [ ] Use conditional stages
+- [ ] Switch models per stage (Haiku → Sonnet → Opus)
+
+### When Benchmarking
+
+- [ ] Limit matrix dimensions
+- [ ] Explore with cheap models first
+- [ ] Run expensive comparisons sparingly
+- [ ] Cache results when possible
+
+---
+
+## Cost Estimation
+
+Estimate costs before running:
+
+```typescript
+function estimateCost(options: {
+  model: 'haiku' | 'sonnet' | 'opus';
+  avgInputTokens: number;
+  avgOutputTokens: number;
+  numTests: number;
+}): number {
+  const costs = {
+    haiku: { input: 0.25, output: 1.25 },
+    sonnet: { input: 3.00, output: 15.00 },
+    opus: { input: 15.00, output: 75.00 }
+  };
+
+  const modelCost = costs[options.model];
+  const costPerTest =
+    (options.avgInputTokens / 1_000_000) * modelCost.input +
+    (options.avgOutputTokens / 1_000_000) * modelCost.output;
+
+  return costPerTest * options.numTests;
+}
+
+// Example
+const estimate = estimateCost({
+  model: 'sonnet',
+  avgInputTokens: 5000,
+  avgOutputTokens: 2000,
+  numTests: 10
+});
+
+console.log(`Estimated cost: $${estimate.toFixed(4)}`);
+// Estimated cost: $0.4500
+```
+
+---
+
+## Best Practices Summary
+
+1. **Choose the Right Model**
+   - Haiku for simple tasks
+   - Sonnet for most tasks
+   - Opus only for complex reasoning
+
+2. **Optimize Prompts**
+   - Be concise
+   - Use slash commands
+   - Avoid redundant context
+
+3. **Limit Scope**
+   - Set maxTurns
+   - Use cost matchers
+   - Early exit on failure
+
+4. **Judge Wisely**
+   - Use matchers first
+   - Combine criteria
+   - Use Haiku when possible
+
+5. **Monitor Spending**
+   - Track costs per test
+   - Use cost reporter
+   - Set budget alerts
+
+---
+
+## What's Next?
+
+Now that you understand cost optimization, explore:
+
+- **[Benchmarking →](/guides/evaluation/benchmarking/)** - Cost-efficient model comparison
+- **[MCP Servers →](/guides/advanced/mcp-servers/)** - MCP tools don't add LLM costs
+- **[Bundle Cleanup →](/guides/advanced/bundle-cleanup/)** - Free up disk space
+
+Or dive into the API reference:
+
+- **[defineAgent() →](/api/core/defineagent/)** - Configure model selection
+- **[RunResult.metrics →](/api/types/run-result/#metrics)** - Access cost data
+- **[toStayUnderCost() →](/api/utilities/config/#custom-matchers)** - Budget enforcement matcher

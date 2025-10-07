@@ -1,0 +1,329 @@
+---
+title: Design Decisions
+description: Key architectural decisions and their rationale
+sidebar:
+  order: 1
+---
+
+This page documents major design decisions in vibe-check's architecture, explaining the trade-offs and reasoning behind each choice.
+
+## Why Vitest?
+
+**Decision:** Build on Vitest v3, not a custom test runner.
+
+### Rationale
+
+**Leverage battle-tested infrastructure:**
+- Vitest has been production-hardened by thousands of projects
+- Test runner complexity (parallelization, worker pools, lifecycle) already solved
+- Reporter ecosystem (HTML, JUnit, custom) available out-of-box
+- IDE integrations (VS Code, WebStorm) work automatically
+
+**Focus on value-add:**
+- Vibe-check's unique value is **agent testing abstractions**, not test infrastructure
+- Building a custom runner would be months of work with high maintenance burden
+- Vitest's fixture system (`test.extend`) is perfect for dependency injection
+
+**Community alignment:**
+- Vitest is the modern standard for TypeScript testing
+- Familiar API reduces learning curve
+- Users can use standard Vitest features (describe, beforeEach, etc.)
+
+### Constraints Accepted
+
+**Pinned to Vitest v3:**
+- Breaking changes in Vitest require migration effort
+- **Mitigation:** Pin to exact version, test before upgrading
+
+**Vitest's concurrency model:**
+- Tests run in parallel workers by default
+- **Mitigation:** Use task.meta for cross-worker data, bundle storage for persistence
+
+**JSON-serializable task.meta:**
+- Can't store complex objects in task.meta (sent across workers)
+- **Mitigation:** Store summary in task.meta, full data in RunBundle on disk
+
+### Alternatives Considered
+
+**Custom test runner:**
+- **Pros:** Complete control, no version coupling
+- **Cons:** Months of development, ongoing maintenance, no ecosystem
+- **Verdict:** Not worth the cost
+
+**Jest:**
+- **Pros:** Mature, widely adopted
+- **Cons:** Slower than Vitest, ESM support incomplete, less modern API
+- **Verdict:** Vitest is the better choice for TypeScript projects
+
+**Playwright Test:**
+- **Pros:** Great for browser testing
+- **Cons:** Overkill for agent testing, not general-purpose
+- **Verdict:** Wrong tool for the job
+
+## Storage Strategy
+
+**Decision:** Hybrid disk bundle + thin task.meta (not in-memory or pure meta).
+
+### Rationale
+
+**Scalability:**
+- 100 file changes (5 MB) × 100 tests = 500 MB
+- Can't store in task.meta (IPC overhead + size limit)
+- Can't keep in memory (worker processes would OOM)
+- **Solution:** Disk storage with lazy loading
+
+**Persistence:**
+- Test reports need data after test run completes
+- In-memory data lost when workers exit
+- **Solution:** RunBundle persists to disk
+
+**Reporter performance:**
+- Reporters need to access data from all tests
+- Reading from task.meta requires IPC (slow for large data)
+- **Solution:** Reporters read bundles directly from disk
+
+### Implementation
+
+**RunBundle (on-disk):**
+- Canonical source of truth
+- NDJSON files for events/hooks
+- Content-addressed file storage (SHA-256)
+- Compressed with gzip for large files
+
+**task.meta (in-memory):**
+- Lightweight pointer to bundle (`bundleDir`)
+- Cost metrics for terminal reporter
+- JSON-serializable (sent across workers)
+- ~1 KB per test
+
+**RunResult (lazy interface):**
+- Provides ergonomic API over bundle data
+- Loads file content on-demand (text() / stream())
+- Minimizes memory footprint
+
+### Alternatives Considered
+
+**Pure in-memory (store everything in task.meta):**
+- **Pros:** Simpler implementation, no disk I/O
+- **Cons:** Doesn't scale (JSON size limit, IPC overhead)
+- **Verdict:** Not feasible for 100+ file changes
+
+**Pure disk (nothing in task.meta):**
+- **Pros:** Maximum scalability
+- **Cons:** Terminal reporter can't aggregate costs (no access to bundleDir)
+- **Verdict:** Missing critical feature (cost summary)
+
+**Database (SQLite/PostgreSQL):**
+- **Pros:** Query capabilities, atomic operations
+- **Cons:** External dependency, setup complexity, overkill for append-only data
+- **Verdict:** NDJSON + file system is simpler
+
+## Thenable Pattern
+
+**Decision:** AgentExecution is a thenable class, not a Promise subclass.
+
+### Rationale
+
+**Custom methods:**
+- Need `.watch()` for reactive assertions
+- Need `.abort()` for manual cancellation
+- Promises can't be extended with custom methods
+
+**Awaitable:**
+- Users expect `await runAgent(...)` to work
+- `Promise.all([e1, e2])` should work
+- Thenable interface satisfies both
+
+**Control:**
+- Full control over promise lifecycle
+- Can intercept resolution for cleanup
+- Can abort underlying execution
+
+### Implementation
+
+```typescript
+export class AgentExecution {
+  private promise: Promise<RunResult>;
+  private abortController: AbortController;
+  private watchers: WatcherFn[];
+
+  watch(fn: WatcherFn): this {
+    this.watchers.push(fn);
+    return this; // Chainable
+  }
+
+  abort(reason?: string): void {
+    this.abortController.abort(reason);
+  }
+
+  // Thenable interface (makes it awaitable)
+  then<T, U>(
+    onFulfilled?: (value: RunResult) => T | Promise<T>,
+    onRejected?: (reason: unknown) => U | Promise<U>
+  ): Promise<T | U> {
+    return this.promise.then(onFulfilled, onRejected);
+  }
+
+  catch<U>(onRejected?: (reason: unknown) => U | Promise<U>): Promise<RunResult | U> {
+    return this.promise.catch(onRejected);
+  }
+
+  finally(onFinally?: () => void): Promise<RunResult> {
+    return this.promise.finally(onFinally);
+  }
+}
+```
+
+**Why it works:**
+```typescript
+// Awaitable
+const result = await execution;
+
+// Works with Promise.all
+const results = await Promise.all([execution1, execution2]);
+
+// Chainable
+execution
+  .watch(watcher1)
+  .watch(watcher2)
+  .then(result => console.log(result));
+
+// Custom methods
+execution.abort('Timeout');
+```
+
+### Alternatives Considered
+
+**Promise subclass:**
+- **Pros:** `instanceof Promise` returns true
+- **Cons:** Can't add custom methods (TypeScript limitation)
+- **Verdict:** Doesn't meet requirements
+
+**Separate execution handle:**
+```typescript
+const handle = runAgent(...);
+const result = await handle.promise;
+handle.watch(fn);
+```
+- **Pros:** Clear separation
+- **Cons:** Awkward API, can't use `await runAgent(...)`
+- **Verdict:** Poor DX
+
+**Callback-based:**
+```typescript
+runAgent(..., {
+  onToolUse: (tool) => { ... },
+  onComplete: (result) => { ... }
+});
+```
+- **Pros:** Familiar pattern
+- **Cons:** Can't use async/await, harder to compose
+- **Verdict:** Not modern enough
+
+## Graceful Degradation
+
+**Decision:** Hook failures don't fail tests; partial data is acceptable.
+
+### Rationale
+
+**Infrastructure vs assertions:**
+- Hook capture is **infrastructure** (not test logic)
+- Tests should fail on **assertions**, not infrastructure issues
+- Missing hook data is a warning, not an error
+
+**Developer experience:**
+- Hooks may fail due to: permissions, disk full, race conditions
+- Failing all tests due to hook issues is frustrating
+- Better to log warnings and continue
+
+**Debugging support:**
+- `hookCaptureStatus` field indicates missing data
+- Warnings logged to stderr
+- Users can opt-in to strict validation via matchers
+
+### Implementation
+
+**Hook script (non-throwing):**
+```javascript
+try {
+  appendFileSync(hookFile, line, 'utf-8');
+} catch (err) {
+  console.error(`[vibe-check] Hook write failed: ${err.message}`);
+  process.exit(0); // Exit successfully
+}
+```
+
+**ContextManager (graceful handling):**
+```typescript
+async processHookEvent(event: HookEvent): Promise<PartialRunResult> {
+  try {
+    await this.correlateAndUpdate(event);
+  } catch (error) {
+    // Log warning, mark incomplete, continue
+    console.warn(`[vibe-check] Failed to process ${event.type}: ${error.message}`);
+    this.hookCaptureStatus.complete = false;
+    this.hookCaptureStatus.warnings.push(error.message);
+    // Don't throw - continue execution
+  }
+  return this.getPartialResult();
+}
+```
+
+**Git detection (silent fallback):**
+```typescript
+const isGit = await this.detectGitRepo();
+if (!isGit) {
+  console.warn('[vibe-check] Workspace is not a git repository');
+  return undefined; // Continue without git state
+}
+```
+
+**User control (opt-in strict mode):**
+```typescript
+// Strict validation via matcher
+expect(result).toHaveCompleteHookData();
+// Fails if any hooks failed to capture
+```
+
+### Alternatives Considered
+
+**Fail fast on hook errors:**
+- **Pros:** Ensures complete data capture
+- **Cons:** Tests fail for infrastructure reasons (bad DX)
+- **Verdict:** Too strict, hurts productivity
+
+**Silent failures (no warnings):**
+- **Pros:** Clean output
+- **Cons:** Hard to debug missing data
+- **Verdict:** Lack of visibility is worse than warnings
+
+**Retry logic:**
+- **Pros:** More resilient to transient errors
+- **Cons:** Adds complexity, may mask real issues
+- **Verdict:** Graceful degradation is simpler
+
+## Summary Table
+
+| Decision | Choice | Key Benefit | Main Trade-off |
+|----------|--------|-------------|----------------|
+| **Test Runner** | Vitest v3 | Battle-tested infrastructure | Version coupling |
+| **Storage** | Hybrid (disk + meta) | Scalability + performance | Two sources of data |
+| **Execution Handle** | Thenable class | Awaitable + custom methods | Not a true Promise |
+| **Error Handling** | Graceful degradation | Robust to infrastructure failures | Incomplete data possible |
+
+## Design Principles
+
+These decisions reflect core design principles:
+
+1. **Vitest-native** - Leverage existing infrastructure, don't reinvent
+2. **Scalable** - Handle 100+ parallel tests with large file changes
+3. **DX-first** - Simple API, clear errors, helpful warnings
+4. **Pragmatic** - Accept trade-offs that improve real-world usability
+5. **Testable** - Architecture enables framework self-testing
+
+## See Also
+
+- [Architecture Overview](/explanation/architecture/overview) - How components fit together
+- [Context Manager](/explanation/architecture/context-manager) - Storage implementation
+- [Auto-Capture](/explanation/concepts/auto-capture) - What's captured automatically
+- [Lazy Loading](/explanation/concepts/lazy-loading) - Memory efficiency details

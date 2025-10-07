@@ -1,0 +1,233 @@
+---
+title: Dual API Design
+description: Understanding vibeTest vs vibeWorkflow and when to use each
+sidebar:
+  order: 1
+---
+
+Vibe-check provides two distinct APIs optimized for different use cases: **`vibeTest`** for evaluation and testing, and **`vibeWorkflow`** for automation pipelines. This dual design ensures each API is tailored to its domain while sharing core primitives.
+
+## The Two APIs
+
+### vibeTest: Evaluation & Testing
+
+**Purpose:** Quality gates, benchmarking, model evaluation
+
+**Characteristics:**
+- **Assertion-focused** - Built around `expect()` matchers and pass/fail semantics
+- **Matrix testing** - Easy Cartesian product configurations for model comparison
+- **Quality gates** - Enforce standards (cost budgets, file restrictions, rubric scores)
+- **Concurrent execution** - Vitest runs tests in parallel by default
+
+**Identity:** "This is a test that validates something"
+
+```typescript
+vibeTest('code review quality', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({ agent: reviewer, prompt: 'Review PR #123' });
+
+  // Assertions for quality gates
+  expect(result).toHaveChangedFiles(['docs/**']);
+  expect(result).toStayUnderCost(2.0);
+
+  // LLM-based evaluation
+  const judgment = await judge(result, { rubric: codeReviewRubric });
+  expect(judgment.passed).toBe(true);
+});
+```
+
+### vibeWorkflow: Automation & Pipelines
+
+**Purpose:** Multi-stage workflows, production automation, orchestration
+
+**Characteristics:**
+- **Stage-oriented** - Linear or branching multi-agent pipelines
+- **Cumulative context** - State flows across stages automatically
+- **Loop support** - `until()` helper for iterative patterns
+- **Production-ready** - Designed for CI/CD and background jobs
+
+**Identity:** "This is an automated process that accomplishes something"
+
+```typescript
+vibeWorkflow('deploy docs', async (wf) => {
+  // Stage 1: Build documentation
+  const build = await wf.stage('build', {
+    agent: builder,
+    prompt: '/build-docs'
+  });
+
+  // Stage 2: Deploy (uses cumulative context from stage 1)
+  const deploy = await wf.stage('deploy', {
+    agent: deployer,
+    prompt: '/deploy --prod'
+  });
+
+  // Access cumulative state
+  const allFiles = wf.files.allChanged();
+  const timeline = wf.timeline.events();
+});
+```
+
+## Why Two APIs?
+
+### Design Philosophy
+
+**One API would compromise both use cases:**
+- Tests don't need stages or cumulative context (they're single-run)
+- Workflows don't need assertions or matrix testing (they're imperative)
+- Mixing concerns creates API confusion and poor ergonomics
+
+**Separation enables:**
+- **Clear intent** - Code readers immediately understand the purpose
+- **Optimized ergonomics** - Each API exposes only relevant features
+- **Different semantics** - Tests expect pass/fail; workflows expect completion
+- **Better tooling** - IDEs can provide context-specific autocomplete
+
+### Shared Primitives
+
+Both APIs use the same building blocks:
+
+| Primitive | Shared Behavior |
+|-----------|----------------|
+| `runAgent()` / `stage()` | Execute agent, return `AgentExecution` |
+| `defineAgent()` | Create reusable agent configurations |
+| `prompt()` | Multi-modal prompt helper (text, images, files) |
+| `judge()` | LLM-based evaluation with rubrics |
+| `RunResult` | Auto-captured execution context |
+
+**Implementation detail:** `vibeTest` and `vibeWorkflow` are both thin wrappers over Vitest's `test.extend()`. They inject different fixtures but share the same infrastructure.
+
+## When to Use Each
+
+### Use `vibeTest` for
+
+- ✅ **Benchmarking models** - Compare Sonnet vs Opus on the same task
+- ✅ **Quality gates** - Ensure agents meet standards (cost, file safety, code quality)
+- ✅ **Evaluation** - Measure agent performance with rubrics
+- ✅ **Matrix testing** - Test multiple configurations (models, prompts, tools)
+- ✅ **One-off execution** - Single agent run with assertions
+
+### Use `vibeWorkflow` for
+
+- ✅ **Multi-stage pipelines** - Deploy, CI/CD, data processing
+- ✅ **Iterative workflows** - Loop until condition met (retry, polling)
+- ✅ **Orchestration** - Coordinate multiple agents with shared state
+- ✅ **Production automation** - Background jobs, scheduled tasks
+- ✅ **State accumulation** - Need to track changes across multiple runs
+
+### Can I mix them?
+
+**Yes, but rarely needed.** You can:
+- Call `runAgent()` inside `vibeWorkflow` for one-off execution (no stage tracking)
+- Use `stage()` inside `vibeTest` if you want stage semantics in tests
+
+However, this is uncommon. The APIs are designed to be mutually exclusive for clarity.
+
+## Context Accumulation
+
+Both APIs accumulate state, but differently:
+
+### vibeTest Context
+```typescript
+vibeTest('multi-run test', async ({ runAgent, files, tools }) => {
+  await runAgent({ agent: a1, prompt: 'task 1' });
+  await runAgent({ agent: a2, prompt: 'task 2' });
+
+  // Context accumulates across runAgent() calls
+  files.changed(); // All files from both runs
+  tools.all(); // All tools from both runs
+});
+```
+
+### vibeWorkflow Context
+```typescript
+vibeWorkflow('pipeline', async (wf) => {
+  await wf.stage('stage1', { agent: a1, prompt: 'task 1' });
+  await wf.stage('stage2', { agent: a2, prompt: 'task 2' });
+
+  // Context accumulates across stages with stage attribution
+  wf.files.allChanged(); // All files
+  wf.files.byStage('stage1'); // Only files from stage 1
+  wf.tools.all(); // Tools with stage metadata
+});
+```
+
+**Key difference:** Workflows track which stage produced each change, enabling debugging and visualization.
+
+## Examples
+
+### Evaluation with vibeTest
+```typescript
+import { vibeTest, defineAgent } from '@dao/vibe-check';
+
+const sonnet = defineAgent({ name: 'sonnet', model: 'claude-sonnet-4' });
+const opus = defineAgent({ name: 'opus', model: 'claude-opus-4' });
+
+vibeTest('compare models on refactoring', async ({ runAgent, judge }) => {
+  const [sonnetResult, opusResult] = await Promise.all([
+    runAgent({ agent: sonnet, prompt: 'Refactor auth.ts' }),
+    runAgent({ agent: opus, prompt: 'Refactor auth.ts' })
+  ]);
+
+  const [sonnetScore, opusScore] = await Promise.all([
+    judge(sonnetResult, { rubric: refactorRubric }),
+    judge(opusResult, { rubric: refactorRubric })
+  ]);
+
+  // Compare results
+  expect(sonnetScore.score).toBeGreaterThan(0.7);
+  expect(opusScore.score).toBeGreaterThan(sonnetScore.score);
+});
+```
+
+### Automation with vibeWorkflow
+```typescript
+import { vibeWorkflow, defineAgent } from '@dao/vibe-check';
+
+const builder = defineAgent({ name: 'builder' });
+const tester = defineAgent({ name: 'tester' });
+const deployer = defineAgent({ name: 'deployer' });
+
+vibeWorkflow('CI pipeline', async (wf) => {
+  // Build
+  const build = await wf.stage('build', {
+    agent: builder,
+    prompt: 'Build the project'
+  });
+
+  // Test (retry up to 3 times if fails)
+  let testResult;
+  await wf.until(
+    (result) => result.todos.every(t => t.status === 'completed'),
+    async () => {
+      testResult = await wf.stage('test', {
+        agent: tester,
+        prompt: 'Run test suite'
+      });
+      return testResult;
+    },
+    { maxIterations: 3 }
+  );
+
+  // Deploy only if tests passed
+  if (testResult.todos.every(t => t.status === 'completed')) {
+    await wf.stage('deploy', {
+      agent: deployer,
+      prompt: 'Deploy to production'
+    });
+  }
+});
+```
+
+## Summary
+
+The dual API design reflects a fundamental truth: **testing and automation are different activities with different needs.**
+
+- **`vibeTest`** = Quality gates, benchmarks, evaluation (pass/fail mindset)
+- **`vibeWorkflow`** = Multi-stage pipelines, orchestration (completion mindset)
+
+Both share primitives (`runAgent`, `judge`, `RunResult`) but differ in:
+- **Semantics** - Assertions vs stages
+- **Context** - Single-run vs cumulative with attribution
+- **Use case** - Evaluation vs automation
+
+Choose based on your intent, not your implementation. If you're validating something, use `vibeTest`. If you're automating something, use `vibeWorkflow`.

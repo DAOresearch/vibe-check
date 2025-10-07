@@ -1,0 +1,746 @@
+---
+title: ToolCall
+description: Correlated tool invocation record with inputs, outputs, and execution metadata
+sidebar:
+  order: 7
+---
+
+`ToolCall` represents a single tool invocation captured during agent execution. It correlates PreToolUse and PostToolUse hook events into a structured record with inputs, outputs, timing, and error information.
+
+## Interface
+
+```typescript
+interface ToolCall {
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  error?: string;
+  timestamp: number;
+  durationMs?: number;
+}
+```
+
+## Properties
+
+### name
+
+```typescript
+name: string
+```
+
+Name of the tool that was invoked.
+
+**Common Tool Names:**
+- `Read` - Read file contents
+- `Write` - Create or overwrite files
+- `Edit` - Edit existing files
+- `Bash` - Execute shell commands
+- `Glob` - Find files by pattern
+- `Grep` - Search file contents
+- `Task` - Launch sub-agents
+- `WebFetch` - Fetch web content
+- `TodoWrite` - Update TODO list
+
+**Example:**
+
+```typescript
+const result = await runAgent({ prompt: '/implement' });
+
+const tools = result.tools.all();
+tools.forEach(tool => {
+  console.log('Tool used:', tool.name);
+});
+```
+
+**Example - Filter by Name:**
+
+```typescript
+const editCalls = result.tools.filter('Edit');
+console.log(`Agent made ${editCalls.length} edits`);
+
+const bashCalls = result.tools.filter('Bash');
+console.log(`Agent ran ${bashCalls.length} commands`);
+```
+
+---
+
+### input
+
+```typescript
+input: Record<string, unknown>
+```
+
+Tool input parameters as key-value pairs.
+
+**Structure varies by tool:**
+
+**Read Tool:**
+```typescript
+{
+  file_path: "/path/to/file.ts",
+  offset?: number,
+  limit?: number
+}
+```
+
+**Edit Tool:**
+```typescript
+{
+  file_path: "/path/to/file.ts",
+  old_string: "original code",
+  new_string: "updated code",
+  replace_all?: boolean
+}
+```
+
+**Bash Tool:**
+```typescript
+{
+  command: "npm test",
+  description?: string,
+  timeout?: number
+}
+```
+
+**Write Tool:**
+```typescript
+{
+  file_path: "/path/to/file.ts",
+  content: "file content"
+}
+```
+
+**Example - Inspect Tool Inputs:**
+
+```typescript
+const result = await runAgent({ prompt: '/refactor' });
+
+const editCalls = result.tools.filter('Edit');
+
+editCalls.forEach(call => {
+  console.log('File:', call.input.file_path);
+  console.log('Old:', call.input.old_string);
+  console.log('New:', call.input.new_string);
+});
+```
+
+**Example - Analyze Commands:**
+
+```typescript
+const bashCalls = result.tools.filter('Bash');
+
+bashCalls.forEach(call => {
+  console.log('Command:', call.input.command);
+  console.log('Description:', call.input.description || 'N/A');
+});
+```
+
+---
+
+### result
+
+```typescript
+result?: string
+```
+
+Tool output/result (undefined if tool failed or had no output).
+
+**Example:**
+
+```typescript
+const result = await runAgent({ prompt: '/run tests' });
+
+const bashCalls = result.tools.filter('Bash');
+
+bashCalls.forEach(call => {
+  if (call.result) {
+    console.log('Command output:');
+    console.log(call.result);
+  }
+});
+```
+
+**Example - Check Test Output:**
+
+```typescript
+vibeTest('verify tests passed', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/test' });
+
+  const testCommand = result.tools.findFirst('Bash');
+
+  expect(testCommand).toBeDefined();
+  expect(testCommand?.input.command).toContain('test');
+  expect(testCommand?.result).toContain('PASS');
+  expect(testCommand?.result).not.toContain('FAIL');
+});
+```
+
+**Availability:**
+- Present for successful tools
+- `undefined` for failed tools (see `error` instead)
+
+---
+
+### error
+
+```typescript
+error?: string
+```
+
+Error message if the tool failed (undefined for successful tools).
+
+**Example:**
+
+```typescript
+const result = await runAgent({ prompt: '/task' });
+
+const failures = result.tools.failed();
+
+failures.forEach(call => {
+  console.error(`${call.name} failed:`, call.error);
+});
+```
+
+**Example - Assert No Failures:**
+
+```typescript
+vibeTest('no tool failures', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/implement' });
+
+  const failures = result.tools.failed();
+
+  expect(failures).toHaveLength(0);
+});
+```
+
+**Example - Handle Expected Failures:**
+
+```typescript
+vibeTest('handles missing files gracefully', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/read config.json and use defaults if missing'
+  });
+
+  const readCall = result.tools.findFirst('Read');
+
+  if (readCall?.error) {
+    // Expected: file might not exist
+    expect(readCall.error).toContain('not found');
+
+    // Verify fallback behavior
+    const logs = result.logs.join('\n');
+    expect(logs).toContain('using defaults');
+  }
+});
+```
+
+---
+
+### timestamp
+
+```typescript
+timestamp: number
+```
+
+Unix timestamp (milliseconds) when the tool was invoked.
+
+**Example:**
+
+```typescript
+const result = await runAgent({ prompt: '/task' });
+
+const tools = result.tools.all();
+
+tools.forEach(tool => {
+  const date = new Date(tool.timestamp);
+  console.log(`${tool.name} at ${date.toISOString()}`);
+});
+```
+
+**Example - Analyze Timeline:**
+
+```typescript
+vibeTest('analyze tool timeline', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '/complex task' });
+
+  const tools = result.tools.all().sort((a, b) => a.timestamp - b.timestamp);
+
+  console.log('Tool execution timeline:');
+  tools.forEach((tool, i) => {
+    const time = new Date(tool.timestamp).toLocaleTimeString();
+    console.log(`${i + 1}. ${tool.name} at ${time}`);
+  });
+});
+```
+
+---
+
+### durationMs
+
+```typescript
+durationMs?: number
+```
+
+Tool execution duration in milliseconds (undefined if not measured).
+
+**Example:**
+
+```typescript
+const result = await runAgent({ prompt: '/task' });
+
+const tools = result.tools.all();
+
+tools.forEach(tool => {
+  if (tool.durationMs !== undefined) {
+    console.log(`${tool.name}: ${tool.durationMs}ms`);
+  }
+});
+```
+
+**Example - Find Slowest Tools:**
+
+```typescript
+vibeTest('identify performance bottlenecks', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '/task' });
+
+  const toolsWithDuration = result.tools
+    .all()
+    .filter(t => t.durationMs !== undefined)
+    .sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0));
+
+  console.log('Slowest tools:');
+  toolsWithDuration.slice(0, 5).forEach(tool => {
+    console.log(`${tool.name}: ${tool.durationMs}ms`);
+  });
+});
+```
+
+---
+
+## ToolAccessor Methods
+
+Access tool calls through the `ToolAccessor` interface:
+
+### all()
+
+```typescript
+all(): ToolCall[]
+```
+
+Get all tool calls.
+
+```typescript
+const tools = result.tools.all();
+console.log(`Total tools used: ${tools.length}`);
+```
+
+### used(name)
+
+```typescript
+used(name: string): number
+```
+
+Count uses of a specific tool.
+
+```typescript
+const editCount = result.tools.used('Edit');
+const bashCount = result.tools.used('Bash');
+console.log(`Edits: ${editCount}, Commands: ${bashCount}`);
+```
+
+### findFirst(name)
+
+```typescript
+findFirst(name: string): ToolCall | undefined
+```
+
+Find the first use of a tool.
+
+```typescript
+const firstWrite = result.tools.findFirst('Write');
+if (firstWrite) {
+  console.log('First file written:', firstWrite.input.file_path);
+}
+```
+
+### filter(name)
+
+```typescript
+filter(name: string): ToolCall[]
+```
+
+Get all calls to a specific tool.
+
+```typescript
+const edits = result.tools.filter('Edit');
+edits.forEach(call => {
+  console.log(`Edited: ${call.input.file_path}`);
+});
+```
+
+### failed()
+
+```typescript
+failed(): ToolCall[]
+```
+
+Get all failed tool calls.
+
+```typescript
+const failures = result.tools.failed();
+if (failures.length > 0) {
+  console.error('Tool failures:');
+  failures.forEach(t => console.error(`  ${t.name}: ${t.error}`));
+}
+```
+
+### succeeded()
+
+```typescript
+succeeded(): ToolCall[]
+```
+
+Get all successful tool calls.
+
+```typescript
+const successful = result.tools.succeeded();
+console.log(`${successful.length} tools succeeded`);
+```
+
+---
+
+## Usage Patterns
+
+### Basic Tool Inspection
+
+```typescript
+vibeTest('inspect tool usage', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/implement feature'
+  });
+
+  const tools = result.tools.all();
+
+  console.log('=== Tool Usage ===');
+  console.log('Total calls:', tools.length);
+  console.log('Edit calls:', result.tools.used('Edit'));
+  console.log('Bash calls:', result.tools.used('Bash'));
+  console.log('Read calls:', result.tools.used('Read'));
+});
+```
+
+### Analyze Specific Tool
+
+```typescript
+vibeTest('analyze bash commands', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/run tests and build'
+  });
+
+  const bashCalls = result.tools.filter('Bash');
+
+  bashCalls.forEach(call => {
+    console.log('Command:', call.input.command);
+    console.log('Duration:', call.durationMs, 'ms');
+
+    if (call.result) {
+      const lines = call.result.split('\n').length;
+      console.log('Output lines:', lines);
+    }
+
+    if (call.error) {
+      console.error('Error:', call.error);
+    }
+  });
+});
+```
+
+### Validate Tool Sequence
+
+```typescript
+vibeTest('validate tool sequence', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/read config, update values, write back'
+  });
+
+  const tools = result.tools.all();
+
+  // Should read first
+  expect(tools[0].name).toBe('Read');
+  expect(tools[0].input.file_path).toContain('config');
+
+  // Then edit or write
+  const writeOrEdit = ['Write', 'Edit'];
+  expect(writeOrEdit).toContain(tools[tools.length - 1].name);
+});
+```
+
+### Track File Operations
+
+```typescript
+vibeTest('track file operations', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/refactor codebase'
+  });
+
+  const fileOps = result.tools
+    .all()
+    .filter(t => ['Read', 'Write', 'Edit'].includes(t.name));
+
+  const fileMap = new Map<string, string[]>();
+
+  fileOps.forEach(call => {
+    const path = call.input.file_path as string;
+    if (!fileMap.has(path)) {
+      fileMap.set(path, []);
+    }
+    fileMap.get(path)?.push(call.name);
+  });
+
+  console.log('File operation summary:');
+  for (const [path, ops] of fileMap) {
+    console.log(`${path}: ${ops.join(' → ')}`);
+  }
+});
+```
+
+### Performance Analysis
+
+```typescript
+vibeTest('performance analysis', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '/task' });
+
+  const toolsWithDuration = result.tools
+    .all()
+    .filter(t => t.durationMs !== undefined);
+
+  const totalDuration = toolsWithDuration.reduce(
+    (sum, t) => sum + (t.durationMs || 0),
+    0
+  );
+
+  const avgDuration = totalDuration / toolsWithDuration.length;
+
+  console.log('Performance metrics:');
+  console.log(`Total tool time: ${totalDuration}ms`);
+  console.log(`Average duration: ${avgDuration.toFixed(2)}ms`);
+  console.log(`Slowest: ${Math.max(...toolsWithDuration.map(t => t.durationMs || 0))}ms`);
+});
+```
+
+### Error Analysis
+
+```typescript
+vibeTest('error analysis', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '/task' });
+
+  const failures = result.tools.failed();
+
+  if (failures.length > 0) {
+    console.error('=== Tool Failures ===');
+
+    // Group by error message
+    const errorGroups = new Map<string, ToolCall[]>();
+
+    failures.forEach(call => {
+      const key = call.error || 'Unknown error';
+      if (!errorGroups.has(key)) {
+        errorGroups.set(key, []);
+      }
+      errorGroups.get(key)?.push(call);
+    });
+
+    for (const [error, calls] of errorGroups) {
+      console.error(`\n${error}:`);
+      calls.forEach(call => {
+        console.error(`  ${call.name} - ${call.input.file_path || call.input.command}`);
+      });
+    }
+  }
+});
+```
+
+### Assert Tool Restrictions
+
+```typescript
+vibeTest('restrict tool usage', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/read and analyze code (no modifications)'
+  });
+
+  const allowedTools = ['Read', 'Glob', 'Grep'];
+  const usedTools = result.tools.all();
+
+  const unauthorized = usedTools.filter(t =>
+    !allowedTools.includes(t.name)
+  );
+
+  expect(unauthorized).toHaveLength(0);
+
+  // Or use matcher
+  expect(result).toUseOnlyTools(allowedTools);
+});
+```
+
+---
+
+## Tool-Specific Examples
+
+### Edit Tool Analysis
+
+```typescript
+vibeTest('analyze edits', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/refactor error handling'
+  });
+
+  const edits = result.tools.filter('Edit');
+
+  edits.forEach(call => {
+    const oldStr = call.input.old_string as string;
+    const newStr = call.input.new_string as string;
+
+    console.log('File:', call.input.file_path);
+    console.log('Old length:', oldStr.length);
+    console.log('New length:', newStr.length);
+    console.log('Growth:', newStr.length - oldStr.length, 'chars');
+  });
+});
+```
+
+### Bash Tool Validation
+
+```typescript
+vibeTest('validate bash commands', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/run linter and tests'
+  });
+
+  const bashCalls = result.tools.filter('Bash');
+
+  bashCalls.forEach(call => {
+    const cmd = call.input.command as string;
+
+    // Ensure safe commands
+    expect(cmd).not.toContain('rm -rf');
+    expect(cmd).not.toContain('sudo');
+
+    // Verify expected commands
+    if (cmd.includes('lint')) {
+      expect(call.result).toContain('✓');
+    }
+  });
+});
+```
+
+### Read Tool Tracking
+
+```typescript
+vibeTest('track file reads', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/analyze codebase'
+  });
+
+  const reads = result.tools.filter('Read');
+
+  const readPaths = reads.map(call => call.input.file_path);
+  const uniquePaths = new Set(readPaths);
+
+  console.log('Files read:', readPaths.length);
+  console.log('Unique files:', uniquePaths.size);
+  console.log('Re-reads:', readPaths.length - uniquePaths.size);
+});
+```
+
+---
+
+## Complete Example
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('comprehensive tool analysis', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement authentication with tests'
+  });
+
+  // 1. Overall tool usage
+  const tools = result.tools.all();
+  console.log(`Total tools used: ${tools.length}`);
+
+  // 2. Breakdown by tool type
+  const toolCounts = new Map<string, number>();
+  tools.forEach(tool => {
+    toolCounts.set(tool.name, (toolCounts.get(tool.name) || 0) + 1);
+  });
+
+  console.log('Tool breakdown:');
+  for (const [name, count] of toolCounts) {
+    console.log(`  ${name}: ${count}`);
+  }
+
+  // 3. Analyze file operations
+  const fileOps = tools.filter(t =>
+    ['Read', 'Write', 'Edit'].includes(t.name)
+  );
+
+  console.log(`\nFile operations: ${fileOps.length}`);
+
+  // 4. Check for failures
+  const failures = result.tools.failed();
+  expect(failures).toHaveLength(0);
+
+  // 5. Performance analysis
+  const withDuration = tools.filter(t => t.durationMs !== undefined);
+  const totalTime = withDuration.reduce((sum, t) => sum + (t.durationMs || 0), 0);
+
+  console.log(`\nTotal tool execution time: ${totalTime}ms`);
+
+  // 6. Validate bash commands
+  const bashCalls = result.tools.filter('Bash');
+
+  bashCalls.forEach(call => {
+    const cmd = call.input.command as string;
+    console.log(`\nCommand: ${cmd}`);
+    console.log(`Duration: ${call.durationMs}ms`);
+
+    if (call.result) {
+      const hasError = call.result.toLowerCase().includes('error');
+      const hasSuccess = call.result.toLowerCase().includes('pass') ||
+                         call.result.includes('✓');
+
+      console.log(`Success indicators: ${hasSuccess}`);
+      console.log(`Error indicators: ${hasError}`);
+    }
+  });
+
+  // 7. Timeline analysis
+  const timeline = tools.map((tool, i) => ({
+    index: i + 1,
+    name: tool.name,
+    timestamp: new Date(tool.timestamp).toLocaleTimeString(),
+    duration: tool.durationMs
+  }));
+
+  console.log('\nExecution timeline:');
+  timeline.forEach(t => {
+    console.log(`${t.index}. ${t.name} at ${t.timestamp} (${t.duration || '?'}ms)`);
+  });
+
+  // 8. Validate tool sequence
+  const firstTool = tools[0];
+  const lastTool = tools[tools.length - 1];
+
+  console.log(`\nFirst tool: ${firstTool.name}`);
+  console.log(`Last tool: ${lastTool.name}`);
+});
+```
+
+---
+
+## See Also
+
+- [RunResult →](/api/types/run-result/) - Contains ToolAccessor
+- [PartialRunResult →](/api/types/partial-result/) - Incremental tool calls
+- [Custom Matchers →](/api/types/matchers/) - Tool-related matchers
+- [Reactive Watchers →](/guides/testing/reactive-watchers/) - Watch tool usage during execution

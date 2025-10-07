@@ -1,91 +1,342 @@
 ---
 title: Installation
-description: Install and configure Vibe Check in your project
+description: Install and configure vibe-check in your project
 sidebar:
-  order: 2
+  order: 1
 ---
 
-# Installation
+import { Tabs, TabItem, Aside, Code } from '@astrojs/starlight/components';
 
-This guide will help you install Vibe Check and configure it for your project.
+This guide will walk you through installing `@dao/vibe-check` and configuring it for your first project.
 
 ## Prerequisites
 
-- **Node.js 18+** (or Bun)
-- **TypeScript** knowledge
-- **Claude Code** CLI installed (for agent automation)
+Before you begin, ensure you have:
 
-## Install Vibe Check
+- **Node.js 18 or later** - Check with `node --version`
+- **A package manager** - We recommend Bun, but npm, pnpm, and yarn work too
+- **TypeScript project** - Vibe-check is TypeScript-first
+- **Claude Code access** - You'll need the `@anthropic-ai/claude-code` SDK
 
-### Using npm
+<Aside type="tip">
+  **First time with Claude Code SDK?** Check the [Claude Code documentation](https://docs.claude.com/en/docs/claude-code) to get started.
+</Aside>
 
-```bash
-npm install --save-dev @dao/vibe-check vitest
-```
+## Installation
 
-### Using bun
+Install vibe-check and its peer dependencies:
 
-```bash
-bun add -D @dao/vibe-check vitest
-```
+<Tabs>
+  <TabItem label="bun">
+    ```bash
+    bun add -D @dao/vibe-check vitest vite
+    ```
+  </TabItem>
+  <TabItem label="npm">
+    ```bash
+    npm install --save-dev @dao/vibe-check vitest vite
+    ```
+  </TabItem>
+  <TabItem label="pnpm">
+    ```bash
+    pnpm add -D @dao/vibe-check vitest vite
+    ```
+  </TabItem>
+  <TabItem label="yarn">
+    ```bash
+    yarn add -D @dao/vibe-check vitest vite
+    ```
+  </TabItem>
+</Tabs>
 
-### Using yarn
+<Aside type="note">
+  **Peer Dependencies:**
+  - `vitest` ^3.2.0 - Test runner
+  - `vite` ^5.0.0 - Build tool
+</Aside>
 
-```bash
-yarn add -D @dao/vibe-check vitest
-```
+## Configuration
 
-## Configure Vitest
+### Step 1: Create Vitest Config
 
 Create a `vitest.config.ts` file in your project root:
 
 ```typescript
-import { defineConfig } from 'vitest/config';
+// vitest.config.ts
+import { defineVibeConfig } from '@dao/vibe-check/config';
 
-export default defineConfig({
+export default defineVibeConfig({
+  // Your custom Vitest configuration here (optional)
+});
+```
+
+<Aside type="tip">
+  **What does `defineVibeConfig` do?**
+
+  It configures Vitest with sensible defaults for agent testing:
+- Registers vibe-check reporters (`VibeCostReporter`, `VibeHtmlReporter`)
+- Sets default timeout to 5 minutes (agents need more time)
+- Auto-registers custom matchers
+- Configures test worker pool (50% of CPU cores)
+</Aside>
+
+### Step 2: Advanced Configuration (Optional)
+
+You can customize the configuration by passing Vitest options:
+
+```typescript
+// vitest.config.ts
+import { defineVibeConfig } from '@dao/vibe-check/config';
+
+export default defineVibeConfig({
   test: {
-    // Vibe Check works best with sequential test execution
-    sequence: {
-      concurrent: false
+    // Increase timeout for complex workflows
+    timeout: 600000, // 10 minutes
+
+    // Limit concurrent tests to reduce API rate limits
+    maxConcurrency: 2,
+
+    // Run tests sequentially (not recommended for CI)
+    poolOptions: {
+      threads: {
+        singleThread: true
+      }
     },
-    // Optional: Configure reporters
-    reporters: ['default', 'html'],
+
+    // Custom test file patterns
+    include: ['**/*.vibe.test.{ts,js}'],
+  },
+
+  // Bundle cleanup configuration
+  cleanup: {
+    maxAgeDays: 30,        // Delete bundles older than 30 days
+    minFreeDiskMb: 1000,   // Clean up when <1GB free space
+    disabled: false,       // Enable automatic cleanup
   },
 });
 ```
 
-## Create Your First Test File
+### Step 3: TypeScript Configuration
 
-Create a test file `tests/example.test.ts`:
+Ensure your `tsconfig.json` includes:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["vitest/globals", "@dao/vibe-check"]
+  }
+}
+```
+
+This enables:
+- Vitest global types (`describe`, `it`, `expect`)
+- Vibe-check custom matchers (TypeScript autocomplete)
+- Extended `TestContext` interface
+
+## Verification
+
+Let's verify the installation with a simple test.
+
+### Create a Test File
+
+Create `tests/hello.vibe.test.ts`:
 
 ```typescript
-import { vibeTest, defineAgent } from '@dao/vibe-check';
+import { vibeTest } from '@dao/vibe-check';
 
-vibeTest('my first test', async ({ runAgent, expect }) => {
+vibeTest('installation works', async ({ runAgent, expect }) => {
   const result = await runAgent({
-    agent: defineAgent({ model: 'claude-sonnet-4' }),
-    prompt: 'Say hello'
+    prompt: 'Say "Hello from vibe-check!"'
   });
 
-  expect(result).toHaveNoErrorsInLogs();
+  // Verify we got a result
+  expect(result).toBeDefined();
+  expect(result.bundleDir).toBeTruthy();
+
+  // Check metrics were captured
+  expect(result.metrics.totalTokens).toBeGreaterThan(0);
+  expect(result.metrics.totalCostUsd).toBeGreaterThan(0);
 });
 ```
 
-## Run Your Tests
+### Run the Test
+
+<Tabs>
+  <TabItem label="bun">
+    ```bash
+    bun run vitest
+    ```
+  </TabItem>
+  <TabItem label="npm">
+    ```bash
+    npm run vitest
+    ```
+  </TabItem>
+  <TabItem label="pnpm">
+    ```bash
+    pnpm vitest
+    ```
+  </TabItem>
+  <TabItem label="yarn">
+    ```bash
+    yarn vitest
+    ```
+  </TabItem>
+</Tabs>
+
+### Expected Output
+
+You should see:
+
+```
+✓ tests/hello.vibe.test.ts (1)
+  ✓ installation works
+
+Test Files  1 passed (1)
+     Tests  1 passed (1)
+
+Vibe Check Cost Summary
+─────────────────────────────
+Total Cost: $0.0043
+Total Tokens: 1,247
+
+HTML Report: .vibe-artifacts/reports/index.html
+```
+
+<Aside type="tip">
+  **Open the HTML report** to see the full conversation transcript, timeline, and captured context!
+</Aside>
+
+## Project Structure
+
+After installation, your project should look like:
+
+```
+your-project/
+├── tests/                        # Your test files
+│   └── hello.vibe.test.ts
+├── .vibe-artifacts/              # Auto-generated (gitignored)
+│   ├── bundles/                  # Run artifacts
+│   │   └── {test-id}/
+│   │       ├── summary.json
+│   │       ├── events.ndjson
+│   │       ├── hooks.ndjson
+│   │       └── files/
+│   └── reports/
+│       └── index.html            # HTML report
+├── vitest.config.ts              # Vitest configuration
+├── tsconfig.json                 # TypeScript configuration
+└── package.json
+```
+
+### Add to `.gitignore`
+
+The `.vibe-artifacts/` directory can grow large. Add it to your `.gitignore`:
+
+```gitignore
+# Vibe Check artifacts
+.vibe-artifacts/
+```
+
+<Aside type="caution">
+  **CI/CD Consideration:**
+
+  If you want to preserve artifacts in CI, exclude `.vibe-artifacts/reports/` from gitignore and configure bundle cleanup:
+
+  ```typescript
+  export default defineVibeConfig({
+    cleanup: {
+      maxAgeDays: 7,  // More aggressive cleanup in CI
+    }
+  });
+  ```
+</Aside>
+
+## Troubleshooting
+
+### Module not found: '@dao/vibe-check'
+
+**Solution:** Ensure the package is installed in your project (not globally):
 
 ```bash
-# Using npm
-npm test
+bun install  # or npm install
+```
 
-# Using bun
-bun test
+### Custom matchers not recognized in TypeScript
 
-# Using yarn
-yarn test
+**Solution:** Add `@dao/vibe-check` to your `tsconfig.json` types:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@dao/vibe-check"]
+  }
+}
+```
+
+### Test timeout errors
+
+**Solution:** Increase the test timeout in your config:
+
+```typescript
+export default defineVibeConfig({
+  test: {
+    timeout: 600000  // 10 minutes
+  }
+});
+```
+
+### Claude Code SDK errors
+
+**Solution:** Ensure you have the SDK installed:
+
+```bash
+bun add @anthropic-ai/claude-code
+```
+
+And set your API key:
+
+```bash
+export ANTHROPIC_API_KEY="your-api-key"
+```
+
+### Permission errors with .vibe-artifacts/
+
+**Solution:** The directory is created automatically. If you see permission errors:
+
+```bash
+mkdir -p .vibe-artifacts
+chmod 755 .vibe-artifacts
 ```
 
 ## Next Steps
 
-- [First Automation Tutorial](/getting-started/first-automation/) - Build your first pipeline
-- [First Evaluation Tutorial](/getting-started/first-evaluation/) - Benchmark your first agent
-- [API Reference](/api/) - Explore the full API
+Now that vibe-check is installed and configured:
+
+- **[Quickstart →](/getting-started/quickstart/)** - Write your first test in 5 minutes
+- **[API Reference →](/api/core/vibetest/)** - Explore the complete API
+- **[Configuration Guide →](/api/utilities/config/)** - Advanced configuration options
+
+---
+
+## Package Dependencies Reference
+
+For reference, here are vibe-check's dependencies:
+
+**Peer Dependencies** (you must install):
+- `vitest` ^3.2.0
+- `vite` ^5.0.0
+
+**Dependencies** (installed automatically):
+- `@anthropic-ai/claude-code` - Claude Code SDK
+- `zod` - Runtime validation
+- `zod-to-json-schema` - Schema conversion for structured outputs
+- `p-limit` - Concurrency control
+- `pathe` - Cross-platform path handling
+- `fs-extra` - File system utilities
+- `minimatch` - Glob pattern matching
+
+**Dev Dependencies** (for development):
+- `typescript` ^5.5.0
+- `@types/node` ^20.11.0
+- `tsup` - Build tool

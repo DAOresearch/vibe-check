@@ -1,0 +1,760 @@
+---
+title: Configuration Types
+description: Configuration interfaces for agents, runs, and workflows
+sidebar:
+  order: 9
+---
+
+Configuration types for defining agents, running executions, and configuring workflows in vibe-check.
+
+## RunAgentOptions
+
+Options for `runAgent()` and `wf.stage()` calls.
+
+```typescript
+interface RunAgentOptions {
+  prompt: string | PromptMessage[];
+  agent?: AgentConfig;
+  model?: string;
+  workspace?: string;
+  timeout?: number;
+  maxTurns?: number;
+  mcpServers?: Record<string, MCPServerConfig>;
+}
+```
+
+### Properties
+
+#### prompt
+
+```typescript
+prompt: string | PromptMessage[]
+```
+
+Task prompt for the agent. Can be a simple string or structured messages from `prompt()` helper.
+
+**String Prompt:**
+
+```typescript
+const result = await runAgent({
+  prompt: '/implement user authentication'
+});
+```
+
+**Structured Prompt (with prompt helper):**
+
+```typescript
+import { prompt } from '@dao/vibe-check';
+
+const result = await runAgent({
+  prompt: prompt({
+    text: 'Implement the design from this mockup',
+    images: ['./mockup.png'],
+    files: ['./requirements.md']
+  })
+});
+```
+
+**See Also:**
+- [prompt() Helper →](/api/core/prompt/) - Creating structured prompts
+- [Multi-Modal Prompts →](/guides/advanced/multi-modal-prompts/) - Using images and files
+
+---
+
+#### agent
+
+```typescript
+agent?: AgentConfig
+```
+
+Agent configuration (defaults to global agent if not specified).
+
+**Example:**
+
+```typescript
+import { defineAgent } from '@dao/vibe-check';
+
+const sonnetAgent = defineAgent({
+  name: 'sonnet-agent',
+  model: 'claude-sonnet-4-5-20250929'
+});
+
+const result = await runAgent({
+  prompt: '/task',
+  agent: sonnetAgent
+});
+```
+
+**See Also:**
+- [defineAgent() →](/api/core/defineagent/) - Creating agents
+- [AgentConfig](#agentconfig) - Agent configuration interface
+
+---
+
+#### model
+
+```typescript
+model?: string
+```
+
+Override model for this run (overrides agent's default model).
+
+**Available Models:**
+- `claude-sonnet-4-5-20250929` - Fast, cost-effective (recommended default)
+- `claude-opus-4-20250514` - Most capable, higher cost
+- `claude-haiku-4-20250514` - Fastest, lowest cost
+
+**Example:**
+
+```typescript
+// Use Opus for complex task
+const result = await runAgent({
+  prompt: '/complex architectural refactor',
+  model: 'claude-opus-4-20250514'
+});
+
+// Use Haiku for simple task
+const result = await runAgent({
+  prompt: '/format code',
+  model: 'claude-haiku-4-20250514'
+});
+```
+
+**See Also:**
+- [Cost Optimization →](/guides/advanced/cost-optimization/) - Model selection strategies
+
+---
+
+#### workspace
+
+```typescript
+workspace?: string
+```
+
+Working directory for the agent.
+
+**Example:**
+
+```typescript
+const result = await runAgent({
+  prompt: '/build',
+  workspace: '/path/to/project'
+});
+```
+
+**Workflow Context:**
+
+In workflows, workspace can be set at workflow level or per-stage:
+
+```typescript
+vibeWorkflow('multi-repo', async (wf) => {
+  // Uses default workspace
+  await wf.stage('build app', { prompt: '/build' });
+
+  // Override for different repo
+  await wf.stage('deploy docs', {
+    prompt: '/deploy',
+    workspace: '/path/to/docs-repo'
+  });
+}, {
+  defaults: {
+    workspace: '/path/to/app-repo'
+  }
+});
+```
+
+---
+
+#### timeout
+
+```typescript
+timeout?: number
+```
+
+Execution timeout in milliseconds.
+
+**Example:**
+
+```typescript
+const result = await runAgent({
+  prompt: '/long-running-task',
+  timeout: 600_000  // 10 minutes
+});
+```
+
+**Default:** 300,000ms (5 minutes)
+
+---
+
+#### maxTurns
+
+```typescript
+maxTurns?: number
+```
+
+Maximum agent turns (request/response cycles) before stopping.
+
+**Example:**
+
+```typescript
+const result = await runAgent({
+  prompt: '/simple task',
+  maxTurns: 5  // Stop after 5 turns max
+});
+```
+
+**Use Cases:**
+- Limit cost for exploratory tasks
+- Prevent infinite loops
+- Enforce efficiency constraints
+
+---
+
+#### mcpServers
+
+```typescript
+mcpServers?: Record<string, MCPServerConfig>
+```
+
+MCP (Model Context Protocol) server configurations for this run.
+
+**Example:**
+
+```typescript
+const result = await runAgent({
+  prompt: '/analyze files',
+  mcpServers: {
+    filesystem: {
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-filesystem', './src'],
+      allowedTools: ['read_file', 'list_directory']
+    }
+  }
+});
+```
+
+**See Also:**
+- [MCP Servers →](/guides/advanced/mcp-servers/) - MCP integration guide
+- [MCPServerConfig](#mcpserverconfig) - MCP configuration interface
+
+---
+
+## AgentConfig
+
+Configuration for agents created with `defineAgent()`.
+
+```typescript
+interface AgentConfig {
+  name: string;
+  model?: string;
+  systemPrompt?: string;
+  mcpServers?: Record<string, MCPServerConfig>;
+  defaults?: {
+    workspace?: string;
+    timeout?: number;
+    maxTurns?: number;
+  };
+}
+```
+
+### Properties
+
+#### name
+
+```typescript
+name: string
+```
+
+Agent identifier (appears in logs and reports).
+
+**Example:**
+
+```typescript
+const agent = defineAgent({
+  name: 'code-reviewer',
+  model: 'claude-opus-4-20250514'
+});
+```
+
+---
+
+#### model
+
+```typescript
+model?: string
+```
+
+Default model for this agent.
+
+**Example:**
+
+```typescript
+const fastAgent = defineAgent({
+  name: 'formatter',
+  model: 'claude-haiku-4-20250514'
+});
+
+const powerAgent = defineAgent({
+  name: 'architect',
+  model: 'claude-opus-4-20250514'
+});
+```
+
+---
+
+#### systemPrompt
+
+```typescript
+systemPrompt?: string
+```
+
+Custom system prompt for the agent.
+
+**Example:**
+
+```typescript
+const securityAgent = defineAgent({
+  name: 'security-auditor',
+  systemPrompt: `You are a security expert.
+    Focus on identifying vulnerabilities and suggesting fixes.
+    Always check for: SQL injection, XSS, authentication issues, and secret exposure.`
+});
+```
+
+---
+
+#### mcpServers
+
+```typescript
+mcpServers?: Record<string, MCPServerConfig>
+```
+
+Default MCP servers for this agent.
+
+**Example:**
+
+```typescript
+const dbAgent = defineAgent({
+  name: 'database-agent',
+  mcpServers: {
+    postgres: {
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-postgres'],
+      env: {
+        DATABASE_URL: process.env.DATABASE_URL
+      },
+      allowedTools: ['query', 'schema']
+    }
+  }
+});
+```
+
+---
+
+#### defaults
+
+```typescript
+defaults?: {
+  workspace?: string;
+  timeout?: number;
+  maxTurns?: number;
+}
+```
+
+Default options for runs with this agent.
+
+**Example:**
+
+```typescript
+const buildAgent = defineAgent({
+  name: 'builder',
+  defaults: {
+    workspace: '/path/to/repo',
+    timeout: 600_000,  // 10 minutes
+    maxTurns: 20
+  }
+});
+```
+
+---
+
+## WorkflowOptions
+
+Options for `vibeWorkflow()`.
+
+```typescript
+interface WorkflowOptions {
+  timeout?: number;
+  defaults?: {
+    workspace?: string;
+    model?: string;
+  };
+}
+```
+
+### Properties
+
+#### timeout
+
+```typescript
+timeout?: number
+```
+
+Total workflow timeout in milliseconds (applies to entire workflow, not per-stage).
+
+**Example:**
+
+```typescript
+vibeWorkflow('deployment', async (wf) => {
+  // All stages combined must finish within 15 minutes
+  await wf.stage('build', { prompt: '/build' });
+  await wf.stage('test', { prompt: '/test' });
+  await wf.stage('deploy', { prompt: '/deploy' });
+}, {
+  timeout: 900_000  // 15 minutes total
+});
+```
+
+---
+
+#### defaults
+
+```typescript
+defaults?: {
+  workspace?: string;
+  model?: string;
+}
+```
+
+Default configuration inherited by all stages.
+
+**Example:**
+
+```typescript
+vibeWorkflow('multi-stage', async (wf) => {
+  // All stages use defaults
+  await wf.stage('stage1', { prompt: '/task1' });
+  await wf.stage('stage2', { prompt: '/task2' });
+
+  // Override for specific stage
+  await wf.stage('stage3', {
+    prompt: '/task3',
+    model: 'claude-opus-4-20250514'  // Override
+  });
+}, {
+  defaults: {
+    workspace: process.cwd(),
+    model: 'claude-sonnet-4-5-20250929'
+  }
+});
+```
+
+---
+
+## MCPServerConfig
+
+MCP (Model Context Protocol) server configuration.
+
+```typescript
+interface MCPServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  allowedTools?: string[];
+}
+```
+
+### Properties
+
+#### command
+
+```typescript
+command: string
+```
+
+Executable command to start the MCP server.
+
+**Example:**
+
+```typescript
+{
+  command: 'npx'
+}
+```
+
+---
+
+#### args
+
+```typescript
+args?: string[]
+```
+
+Command-line arguments.
+
+**Example:**
+
+```typescript
+{
+  command: 'npx',
+  args: ['@modelcontextprotocol/server-filesystem', './src']
+}
+```
+
+---
+
+#### env
+
+```typescript
+env?: Record<string, string>
+```
+
+Environment variables for the server.
+
+**Example:**
+
+```typescript
+{
+  command: 'npx',
+  args: ['@modelcontextprotocol/server-postgres'],
+  env: {
+    DATABASE_URL: process.env.DATABASE_URL,
+    NODE_ENV: 'production'
+  }
+}
+```
+
+---
+
+#### allowedTools
+
+```typescript
+allowedTools?: string[]
+```
+
+Whitelist of allowed tools (security).
+
+**Example:**
+
+```typescript
+{
+  command: 'npx',
+  args: ['@modelcontextprotocol/server-filesystem', './src'],
+  allowedTools: ['read_file', 'list_directory']  // No write access
+}
+```
+
+**Security Best Practice:** Always specify `allowedTools` to limit what the agent can do.
+
+---
+
+## PromptMessage
+
+Message format for structured prompts (from `prompt()` helper).
+
+```typescript
+interface PromptMessage {
+  type: 'text' | 'image' | 'file';
+  content: string | Buffer;
+  mimeType?: string;
+}
+```
+
+**Created by prompt() helper:**
+
+```typescript
+import { prompt } from '@dao/vibe-check';
+
+const messages = prompt({
+  text: 'Implement this design',
+  images: ['./mockup.png'],
+  files: ['./spec.md']
+});
+
+const result = await runAgent({ prompt: messages });
+```
+
+**See Also:**
+- [prompt() →](/api/core/prompt/) - Helper function
+- [Multi-Modal Prompts →](/guides/advanced/multi-modal-prompts/) - Usage guide
+
+---
+
+## Complete Examples
+
+### Agent Definition
+
+```typescript
+import { defineAgent } from '@dao/vibe-check';
+
+const architect = defineAgent({
+  name: 'system-architect',
+  model: 'claude-opus-4-20250514',
+  systemPrompt: `You are a system architect specializing in scalable, maintainable designs.
+    Focus on: modularity, separation of concerns, and future extensibility.`,
+  mcpServers: {
+    filesystem: {
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-filesystem', './src'],
+      allowedTools: ['read_file', 'list_directory']
+    }
+  },
+  defaults: {
+    workspace: process.cwd(),
+    timeout: 600_000,
+    maxTurns: 30
+  }
+});
+```
+
+### Run Configuration
+
+```typescript
+vibeTest('complex implementation', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement OAuth2 flow with PKCE',
+    agent: architect,
+    model: 'claude-opus-4-20250514',  // Override for this run
+    workspace: './packages/auth',
+    timeout: 900_000,  // 15 minutes
+    maxTurns: 40,
+    mcpServers: {
+      database: {
+        command: 'npx',
+        args: ['@modelcontextprotocol/server-postgres'],
+        env: {
+          DATABASE_URL: process.env.TEST_DB_URL
+        },
+        allowedTools: ['query', 'schema']
+      }
+    }
+  });
+
+  expect(result.files).toHaveChangedFiles(['src/auth/**']);
+  expect(result.tools.failed()).toHaveLength(0);
+});
+```
+
+### Workflow Configuration
+
+```typescript
+vibeWorkflow('deployment pipeline', async (wf) => {
+  // Stage 1: Build with Sonnet (fast)
+  await wf.stage('build', {
+    prompt: '/build production bundle',
+    model: 'claude-sonnet-4-5-20250929'
+  });
+
+  // Stage 2: Security audit with Opus (thorough)
+  await wf.stage('security audit', {
+    prompt: '/audit security vulnerabilities',
+    model: 'claude-opus-4-20250514'
+  });
+
+  // Stage 3: Deploy with Haiku (simple task)
+  await wf.stage('deploy', {
+    prompt: '/deploy to production',
+    model: 'claude-haiku-4-20250514'
+  });
+}, {
+  timeout: 1_200_000,  // 20 minutes total
+  defaults: {
+    workspace: process.cwd(),
+    model: 'claude-sonnet-4-5-20250929'
+  }
+});
+```
+
+### Multi-Modal Configuration
+
+```typescript
+import { prompt } from '@dao/vibe-check';
+
+vibeTest('implement from design', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: prompt({
+      text: `Implement the login page based on the mockup and spec.
+             Use the component library from design-system.md.`,
+      images: ['./designs/login-mockup.png'],
+      files: [
+        './specs/auth-requirements.md',
+        './docs/design-system.md'
+      ]
+    }),
+    model: 'claude-opus-4-20250514',
+    workspace: './packages/web'
+  });
+
+  expect(result.files).toHaveChangedFiles(['src/pages/login.tsx']);
+});
+```
+
+---
+
+## Configuration Precedence
+
+When multiple configuration sources are present, they override in this order (highest to lowest):
+
+1. **Run-level options** (highest priority)
+   ```typescript
+   await runAgent({
+     prompt: '/task',
+     model: 'claude-opus-4-20250514'  // ← Highest priority
+   });
+   ```
+
+2. **Agent defaults**
+   ```typescript
+   const agent = defineAgent({
+     name: 'my-agent',
+     defaults: {
+       model: 'claude-sonnet-4-5-20250929'  // ← Medium priority
+     }
+   });
+   ```
+
+3. **Workflow defaults** (for workflows only)
+   ```typescript
+   vibeWorkflow('wf', async (wf) => { ... }, {
+     defaults: {
+       model: 'claude-haiku-4-20250514'  // ← Low priority (workflow only)
+     }
+   });
+   ```
+
+4. **Global defaults** (lowest priority)
+   - Built-in framework defaults
+
+**Example:**
+
+```typescript
+const agent = defineAgent({
+  name: 'builder',
+  model: 'claude-sonnet-4-5-20250929',
+  defaults: {
+    timeout: 300_000
+  }
+});
+
+// This run will use:
+// - model: 'claude-opus-4-20250514' (run-level override)
+// - timeout: 600_000 (run-level override)
+// - workspace: agent.defaults.workspace (from agent)
+const result = await runAgent({
+  agent,
+  prompt: '/task',
+  model: 'claude-opus-4-20250514',  // Override agent's model
+  timeout: 600_000  // Override agent's timeout
+});
+```
+
+---
+
+## See Also
+
+- [defineAgent() →](/api/core/defineagent/) - Creating agents
+- [runAgent() →](/api/core/runagent/) - Running agents
+- [vibeWorkflow() →](/api/core/vibeworkflow/) - Building workflows
+- [prompt() →](/api/core/prompt/) - Structured prompts
+- [MCP Servers →](/guides/advanced/mcp-servers/) - MCP integration
+- [Cost Optimization →](/guides/advanced/cost-optimization/) - Model selection

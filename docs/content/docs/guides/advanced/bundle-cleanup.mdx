@@ -1,0 +1,540 @@
+---
+title: Bundle Cleanup
+description: Manage disk space by cleaning up old test artifacts and RunBundles
+sidebar:
+  order: 3
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers how to manage RunBundle artifacts to prevent disk space accumulation. You'll learn about automatic cleanup policies, manual cleanup strategies, and how to protect important test runs.
+
+<Aside type="tip">
+  **What are RunBundles?** Every test/workflow creates a RunBundle in `.vibe-artifacts/` containing hook events, SDK events, file snapshots, and execution metadata.
+</Aside>
+
+## The Problem
+
+RunBundles accumulate over time:
+
+```
+.vibe-artifacts/
+├── test-abc123/  (2025-09-01, 45 MB)
+├── test-def456/  (2025-09-15, 120 MB)
+├── test-ghi789/  (2025-10-01, 89 MB)
+├── test-jkl012/  (2025-10-03, 67 MB)
+└── ...           (100+ test runs, 10+ GB total)
+```
+
+Without cleanup:
+- **Disk space fills up** - Especially in CI environments
+- **Git repositories bloat** - If `.vibe-artifacts/` isn't gitignored
+- **Slower test startup** - More artifacts to scan
+
+---
+
+## Automatic Cleanup
+
+Vibe-check automatically deletes old bundles on test suite startup.
+
+### Default Policy
+
+**Retention Period:** 30 days
+
+RunBundles older than 30 days are automatically deleted when tests start.
+
+```typescript
+// Runs automatically before tests
+// Deletes bundles with mtime > 30 days ago
+```
+
+### Configure Retention
+
+Customize the retention period in `vitest.config.ts`:
+
+```typescript
+// vitest.config.ts
+import { defineVibeConfig } from '@dao/vibe-check';
+
+export default defineVibeConfig({
+  cleanup: {
+    maxAgeDays: 7,  // Delete bundles older than 7 days
+  },
+});
+```
+
+<Aside type="note">
+  **Local Development:** Use default 30-day retention to keep test history.
+  **CI Environments:** Use 1-7 days for frequent cleanup.
+</Aside>
+
+### Disable Automatic Cleanup
+
+```typescript
+export default defineVibeConfig({
+  cleanup: {
+    disabled: true  // No automatic cleanup
+  },
+});
+```
+
+---
+
+## Manual Cleanup
+
+Use the `cleanupBundles()` API for on-demand cleanup:
+
+### Basic Usage
+
+```typescript
+import { cleanupBundles } from '@dao/vibe-check/artifacts';
+
+// Delete bundles older than 7 days
+const result = await cleanupBundles({
+  maxAgeDays: 7
+});
+
+console.log(`Deleted: ${result.deleted} bundles`);
+console.log(`Freed: ${result.freedMb.toFixed(2)} MB`);
+console.log(`Errors: ${result.errors.length}`);
+```
+
+### Delete All Bundles
+
+```typescript
+// ⚠️ Use with caution: deletes ALL bundles
+const result = await cleanupBundles({
+  maxAgeDays: 0
+});
+```
+
+### CI/CD Integration
+
+Add cleanup to your CI pipeline:
+
+```yaml
+# .github/workflows/test.yml
+- name: Run tests
+  run: bun test
+
+- name: Clean up old bundles
+  run: |
+    bun run scripts/cleanup-bundles.ts
+```
+
+```typescript
+// scripts/cleanup-bundles.ts
+import { cleanupBundles } from '@dao/vibe-check/artifacts';
+
+const result = await cleanupBundles({
+  maxAgeDays: 1  // Keep only today's runs in CI
+});
+
+console.log(`Cleaned up ${result.deleted} bundles (${result.freedMb.toFixed(2)} MB freed)`);
+
+if (result.errors.length > 0) {
+  console.error('Cleanup errors:', result.errors);
+}
+```
+
+---
+
+## Disk Space Thresholds
+
+Automatically clean up when disk space is low:
+
+```typescript
+export default defineVibeConfig({
+  cleanup: {
+    maxAgeDays: 30,
+    minFreeDiskMb: 1000  // Clean up if <1GB free
+  },
+});
+```
+
+**How it works:**
+1. Check free disk space before tests
+2. If `freeDiskMb < minFreeDiskMb`, trigger aggressive cleanup
+3. Delete oldest bundles first until threshold is met
+
+---
+
+## Protected Bundles
+
+Protect important test runs from automatic deletion:
+
+### Create Protection Marker
+
+```bash
+# Protect a specific test run
+touch .vibe-artifacts/test-abc123/.vibe-keep
+```
+
+Bundles with `.vibe-keep` are **never** automatically deleted.
+
+### When to Protect Bundles
+
+- **Critical test runs** - Production deployments, major releases
+- **Debugging** - Runs being investigated
+- **Compliance** - Audit trail requirements
+
+### Remove Protection
+
+```bash
+# Allow automatic deletion again
+rm .vibe-artifacts/test-abc123/.vibe-keep
+```
+
+### List Protected Bundles
+
+```bash
+# Find all protected bundles
+find .vibe-artifacts -name '.vibe-keep'
+```
+
+---
+
+## Cleanup Strategies by Environment
+
+### Local Development
+
+**Goal:** Keep test history for debugging
+
+```typescript
+export default defineVibeConfig({
+  cleanup: {
+    maxAgeDays: 30,      // 1 month retention
+    minFreeDiskMb: 500   // Clean up if <500MB free
+  },
+});
+```
+
+**Why:**
+- Long retention for debugging old test runs
+- Automatic cleanup only when disk fills
+
+### CI Environments
+
+**Goal:** Minimize disk usage
+
+```typescript
+export default defineVibeConfig({
+  cleanup: {
+    maxAgeDays: 1,       // Keep only today's runs
+    minFreeDiskMb: 1000  // Aggressive cleanup threshold
+  },
+});
+```
+
+**Why:**
+- CI runs don't need history
+- Prevent disk space issues in shared runners
+
+### Shared Development Servers
+
+**Goal:** Balance history with disk space
+
+```typescript
+export default defineVibeConfig({
+  cleanup: {
+    maxAgeDays: 7,       // 1 week retention
+    minFreeDiskMb: 2000  // Clean up if <2GB free
+  },
+});
+```
+
+**Why:**
+- Short retention for team debugging
+- Prevent one user from filling disk
+
+---
+
+## Monitoring Disk Usage
+
+### Check Bundle Size
+
+```typescript
+import { readdir, stat } from 'node:fs/promises';
+import { join } from 'node:path';
+
+async function getBundleStats() {
+  const bundleDirs = await readdir('.vibe-artifacts');
+  let totalSize = 0;
+  const bundles = [];
+
+  for (const dir of bundleDirs) {
+    const bundlePath = join('.vibe-artifacts', dir);
+    const stats = await stat(bundlePath);
+    const size = await getFolderSize(bundlePath);
+
+    bundles.push({
+      name: dir,
+      sizeMb: size / (1024 * 1024),
+      age: Date.now() - stats.mtimeMs
+    });
+
+    totalSize += size;
+  }
+
+  return {
+    totalMb: totalSize / (1024 * 1024),
+    count: bundles.length,
+    bundles: bundles.sort((a, b) => b.sizeMb - a.sizeMb)
+  };
+}
+
+async function getFolderSize(path: string): Promise<number> {
+  const entries = await readdir(path, { withFileTypes: true });
+  let size = 0;
+
+  for (const entry of entries) {
+    const fullPath = join(path, entry.name);
+    if (entry.isDirectory()) {
+      size += await getFolderSize(fullPath);
+    } else {
+      const stats = await stat(fullPath);
+      size += stats.size;
+    }
+  }
+
+  return size;
+}
+
+// Usage
+const stats = await getBundleStats();
+console.log(`Total bundles: ${stats.count}`);
+console.log(`Total size: ${stats.totalMb.toFixed(2)} MB`);
+console.log('\nLargest bundles:');
+stats.bundles.slice(0, 5).forEach(b => {
+  console.log(`  ${b.name}: ${b.sizeMb.toFixed(2)} MB`);
+});
+```
+
+### Add to Pre-Test Hook
+
+```typescript
+// vitest.setup.ts
+import { beforeAll } from 'vitest';
+
+beforeAll(async () => {
+  const stats = await getBundleStats();
+
+  if (stats.totalMb > 1000) {  // > 1GB
+    console.warn(`⚠️  Bundle size: ${stats.totalMb.toFixed(2)} MB`);
+    console.warn('Consider running cleanup: cleanupBundles({ maxAgeDays: 7 })');
+  }
+});
+```
+
+---
+
+## Best Practices
+
+### 1. Gitignore Artifacts
+
+Always exclude `.vibe-artifacts/` from version control:
+
+```gitignore
+# .gitignore
+.vibe-artifacts/
+```
+
+<Aside type="caution">
+  **Never commit RunBundles** - They contain test execution data and can be large.
+</Aside>
+
+### 2. Set Environment-Specific Policies
+
+```typescript
+// vitest.config.ts
+const isCI = process.env.CI === 'true';
+
+export default defineVibeConfig({
+  cleanup: {
+    maxAgeDays: isCI ? 1 : 30,
+    minFreeDiskMb: isCI ? 1000 : 500
+  },
+});
+```
+
+### 3. Protect Critical Runs
+
+```bash
+# After important test run
+touch .vibe-artifacts/$(ls -t .vibe-artifacts | head -1)/.vibe-keep
+```
+
+### 4. Monitor Disk Usage
+
+Add a script to package.json:
+
+```json
+{
+  "scripts": {
+    "artifacts:size": "du -sh .vibe-artifacts",
+    "artifacts:clean": "bun run scripts/cleanup-bundles.ts"
+  }
+}
+```
+
+### 5. Schedule Cleanup in CI
+
+```yaml
+# .github/workflows/cleanup.yml
+name: Weekly Cleanup
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Every Sunday
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: bun install
+      - run: bun run artifacts:clean
+```
+
+---
+
+## Troubleshooting
+
+### Cleanup Not Running
+
+**Symptom:** Old bundles aren't being deleted
+
+**Solutions:**
+1. Check config:
+   ```typescript
+   // Make sure cleanup is not disabled
+   cleanup: { disabled: false }
+   ```
+
+2. Check retention period:
+   ```typescript
+   // Bundles must be older than maxAgeDays
+   cleanup: { maxAgeDays: 30 }
+   ```
+
+3. Check for `.vibe-keep` markers:
+   ```bash
+   find .vibe-artifacts -name '.vibe-keep'
+   ```
+
+### Permission Errors
+
+**Symptom:** `EACCES` or `EPERM` errors during cleanup
+
+**Solution:** Ensure vibe-check has write permissions:
+
+```bash
+chmod -R u+w .vibe-artifacts
+```
+
+### Disk Space Still Low
+
+**Symptom:** Cleanup runs but disk is still full
+
+**Solution:** Lower `maxAgeDays` or manually delete:
+
+```typescript
+// More aggressive cleanup
+await cleanupBundles({ maxAgeDays: 0 });
+```
+
+---
+
+## Manual Cleanup Strategies
+
+### Delete by Age
+
+```typescript
+// Delete bundles older than 3 days
+await cleanupBundles({ maxAgeDays: 3 });
+```
+
+### Delete by Size
+
+```typescript
+// Keep only smallest 10 bundles
+import { readdir, stat, rm } from 'node:fs/promises';
+
+const bundles = await getBundleStats();
+const toDelete = bundles.bundles
+  .sort((a, b) => b.sizeMb - a.sizeMb)
+  .slice(10);  // Delete all but 10 smallest
+
+for (const bundle of toDelete) {
+  await rm(join('.vibe-artifacts', bundle.name), { recursive: true });
+  console.log(`Deleted: ${bundle.name} (${bundle.sizeMb.toFixed(2)} MB)`);
+}
+```
+
+### Delete Failed Tests
+
+```typescript
+// Delete bundles from failed tests
+import { readdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+
+const bundleDirs = await readdir('.vibe-artifacts');
+
+for (const dir of bundleDirs) {
+  const summaryPath = join('.vibe-artifacts', dir, 'summary.json');
+  const summary = JSON.parse(await readFile(summaryPath, 'utf-8'));
+
+  if (summary.failed) {
+    await rm(join('.vibe-artifacts', dir), { recursive: true });
+    console.log(`Deleted failed test: ${dir}`);
+  }
+}
+```
+
+---
+
+## Configuration Reference
+
+### CleanupConfig
+
+```typescript
+interface CleanupConfig {
+  /** Maximum age in days (default: 30) */
+  maxAgeDays?: number;
+
+  /** Minimum free disk space in MB (cleanup if below threshold) */
+  minFreeDiskMb?: number;
+
+  /** Disable automatic cleanup */
+  disabled?: boolean;
+}
+```
+
+### cleanupBundles() Result
+
+```typescript
+interface CleanupResult {
+  /** Number of bundles deleted */
+  deleted: number;
+
+  /** Disk space freed in MB */
+  freedMb: number;
+
+  /** Errors encountered during cleanup */
+  errors: string[];
+}
+```
+
+---
+
+## What's Next?
+
+Now that you understand bundle cleanup, explore:
+
+- **[Cost Optimization →](/guides/advanced/cost-optimization/)** - Reduce test costs
+- **[Building Workflows →](/guides/automation/building-workflows/)** - Create workflows that generate bundles
+- **[RunResult →](/api/types/run-result/)** - Understand what's stored in bundles
+
+Or learn more about vibe-check internals:
+
+- **[Storage Architecture](/explanation/architecture/run-bundle/)** - How bundles are structured
+- **[defineVibeConfig() →](/api/utilities/config/)** - Configuration API

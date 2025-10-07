@@ -1,283 +1,208 @@
 ---
 title: API Reference
-description: Complete TypeScript reference for Vibe Check
-head:
-  - tag: meta
-    attrs:
-      property: og:image
-      content: https://daoresearch.github.io/vibe-check/og-images/api.png
-  - tag: meta
-    attrs:
-      property: og:image:width
-      content: "1200"
-  - tag: meta
-    attrs:
-      property: og:image:height
-      content: "630"
-  - tag: meta
-    attrs:
-      name: twitter:card
-      content: summary_large_image
-  - tag: meta
-    attrs:
-      name: twitter:image
-      content: https://daoresearch.github.io/vibe-check/og-images/api.png
+description: Complete vibe-check API reference including vibeTest, vibeWorkflow, runAgent, judge, and all TypeScript types. Full documentation for testing and automating Claude Code agents.
 ---
 
-:::tip[📋 Reference - Information-Oriented]
-This section provides **accurate, factual technical information** about all functions, types, and interfaces. Documentation is comprehensive, precise, and structured for quick lookup.
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-**Looking for how to use these APIs?** See [Guides](/guides/) for practical examples.
-**Want to understand the design?** See [Explanation](/explanation/) for architecture details.
-**New to Vibe Check?** Start with [Getting Started](/getting-started/) tutorials.
-:::
+Complete technical reference for all vibe-check APIs, types, and utilities.
+
+## Quick Navigation
+
+<CardGrid>
+  <Card title="Core APIs" icon="seti:javascript">
+    Functions you'll use in every test and workflow.
+  </Card>
+
+  <Card title="Types" icon="seti:typescript">
+    [TypeScript interfaces and types](/api/types/) for context, results, and configuration.
+  </Card>
+
+  <Card title="Utilities" icon="seti:config">
+    [Helper functions](/api/utilities/) for configuration and test setup.
+  </Card>
+</CardGrid>
 
 ---
 
----
+## Core APIs
 
-## Core API
+Essential functions for testing and automation.
 
-### [vibeTest](/api/vibetest/)
-Evaluation-first test function for benchmarking and quality gates.
+### [vibeTest](/api/core/vibetest/)
+Write tests with custom matchers, fixtures, and auto-captured context.
 
 ```typescript
-vibeTest(
-  name: string,
-  fn: (ctx: VibeTestContext) => Promise<void> | void,
-  timeoutOrOpts?: number | { timeout?: number }
-): void
+vibeTest('example', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: 'implement feature X' });
+  expect(result).toHaveChangedFiles(['src/index.ts']);
+});
 ```
 
-**Use cases:** Benchmarking models, quality gates, matrix testing
-
-**Context provides:**
-- `runAgent` - Execute agents
-- `judge` - LLM-based evaluation
-- `expect` - Custom matchers with Vitest assertions
-- `annotate` - Stream progress to reporters
-- `task` - Access Vitest task metadata
-
----
-
-### [vibeWorkflow](/api/vibeworkflow/)
-Automation-first workflow function for multi-stage pipelines.
+### [vibeWorkflow](/api/core/vibeworkflow/)
+Build multi-stage automation workflows with cumulative context.
 
 ```typescript
-vibeWorkflow(
-  name: string,
-  fn: (ctx: WorkflowContext) => Promise<void>,
-  options?: {
-    timeout?: number;
-    defaults?: { workspace?: string; model?: string }
+const builder = defineAgent({ name: 'builder', model: 'claude-sonnet-4' });
+const tester = defineAgent({ name: 'tester', model: 'claude-sonnet-4' });
+
+vibeWorkflow('deploy', async (wf) => {
+  await wf.stage('build', { agent: builder, prompt: '/build' });
+  await wf.stage('test', { agent: tester, prompt: '/test' });
+});
+```
+
+### [defineAgent](/api/core/defineagent/)
+Create reusable agent definitions with configuration.
+
+```typescript
+const myAgent = defineAgent({
+  name: 'my-agent',
+  model: 'claude-sonnet-4',
+  maxTurns: 10
+});
+```
+
+### [runAgent](/api/core/runagent/)
+Execute agents directly outside of tests/workflows.
+
+```typescript
+const myAgent = defineAgent({ name: 'my-agent', model: 'claude-sonnet-4' });
+
+const result = await runAgent({
+  agent: myAgent,  // Optional: defaults to claude-sonnet-4
+  prompt: 'implement feature',
+  workspace: '/path/to/repo'
+});
+```
+
+### [judge](/api/core/judge/)
+Evaluate agent output quality with LLM-based rubrics.
+
+```typescript
+const judgeResult = await judge(result, {
+  rubric: {
+    criteria: [
+      { name: 'correctness', weight: 0.7 },
+      { name: 'style', weight: 0.3 }
+    ]
   }
-): void
+});
 ```
-
-**Use cases:** Multi-stage pipelines, loops/retries, production automation
-
-**Context provides:**
-- `stage(name, opts)` - Execute workflow stages
-- `files` - Cumulative file changes across stages
-- `tools` - Cumulative tool calls across stages
-- `timeline` - Unified event timeline
-- `until(predicate, body)` - Loop helper
-
----
-
-### [prompt](/api/prompt/)
-Create reusable, streamable prompts.
-
-```typescript
-function prompt(text: string): AsyncIterablePrompt
-function prompt(options: {
-  text: string;
-  command?: string;
-  attachments?: string[];
-}): AsyncIterablePrompt
-```
-
-**Returns:** Async iterable compatible with Claude's streaming API
-
----
-
-### [defineAgent](/api/defineagent/)
-Configure agent execution environment.
-
-```typescript
-function defineAgent(spec: AgentSpec): Agent
-
-interface AgentSpec {
-  name?: string;
-  model?: string;
-  tools?: string[];
-  mcpServers?: Record<string, MCPServerConfig>;
-  source?: SourceSpec;
-  timeouts?: { maxTurns?: number; timeoutMs?: number };
-  systemPrompt?: SystemPromptSpec;
-  commands?: Record<string, CommandDefinition>;
-}
-```
-
----
-
-### [runAgent](/api/runagent/)
-Execute an agent and get auto-captured execution context.
-
-```typescript
-async function runAgent(options: RunAgentOptions): Promise<RunResult>
-
-interface RunAgentOptions {
-  agent?: Agent;
-  prompt: string | AsyncIterablePrompt;
-  override?: Partial<AgentSpec>;
-  workspace?: string;
-  context?: RunResult;
-}
-```
-
-**Returns `RunResult` with:**
-- `metrics` - Tokens, cost (USD), duration, counts
-- `messages` - Conversation messages (summarized, lazy-loaded)
-- `todos` - Todo list with status tracking
-- `git` - Git state before/after (if workspace provided)
-- `files` - Changed files with lazy content loading
-- `tools` - Tool calls with inputs/outputs/timing
-- `timeline` - Unified event timeline (SDK + hooks)
-
-**See:** [RunResult type definition](./types.md#runresult)
-
----
-
-### [judge](/api/judge/)
-LLM-based evaluation with rubrics.
-
-```typescript
-async function judge(
-  result: RunResult,
-  options: {
-    rubric: Rubric;
-    throwOnFail?: boolean;
-  }
-): Promise<JudgeResult>
-
-interface JudgeResult {
-  passed: boolean;
-  score?: number;
-  details?: Record<string, CriterionResult>;
-}
-```
-
----
-
-## Matchers
-
-### [Custom Matchers](/api/matchers/)
-Quality assertions for agent results.
-
-**File matchers:**
-- `toHaveChangedFiles(paths: string[])` - Assert specific files changed (supports globs)
-- `toHaveNoDeletedFiles()` - Assert no files were deleted
-
-**Tool matchers:**
-- `toHaveUsedTool(name, opts?)` - Assert tool usage with optional min/max counts
-- `toUseOnlyTools(allowlist: string[])` - Assert only specified tools used
-
-**Quality matchers:**
-- `toCompleteAllTodos()` - Assert all todos completed
-- `toHaveNoErrorsInLogs()` - Assert no error messages in logs
-- `toPassRubric(rubric: Rubric)` - Assert LLM-based quality evaluation
-
-**Cost matchers:**
-- `toStayUnderCost(maxUsd: number)` - Assert cost under budget
 
 ---
 
 ## Types
 
-### [TypeScript Types](/api/types/)
-Complete type reference for all interfaces, types, and enums.
+TypeScript interfaces for all vibe-check objects.
 
-**Core types:**
-- `RunResult` - Agent execution results with auto-captured context
-- `FileChange` - Changed file with lazy content loading
-- `ToolCall` - Tool invocation with inputs/outputs/timing
-- `TimelineEvent` - Unified timeline events (SDK + hooks)
+### Context Interfaces
+- [VibeTestContext](/api/types/test-context/) - Test fixture context
+- [WorkflowContext](/api/types/workflow-context/) - Workflow orchestration context
+- [AgentExecution](/api/types/agent-execution/) - Real-time execution monitoring
 
-**Context types:**
-- `VibeTestContext` - Test context for vibeTest
-- `WorkflowContext` - Workflow context for vibeWorkflow
+### Result Interfaces
+- [RunResult](/api/types/run-result/) - Complete agent run results
+- [PartialRunResult](/api/types/partial-result/) - In-progress execution state
+- [FileChange](/api/types/file-change/) - File modification details
+- [ToolCall](/api/types/tool-call/) - Tool invocation records
 
-**Agent types:**
-- `Agent` - Configured agent
-- `AgentSpec` - Agent configuration specification
-- `RunAgentOptions` - Options for runAgent
+### Evaluation Types
+- [Rubric & JudgeResult](/api/types/rubric/) - Quality evaluation types
 
-**Evaluation types:**
-- `Rubric` - Evaluation criteria
-- `JudgeResult` - Judge evaluation result
+### Configuration
+- [Configuration Types](/api/types/configuration/) - Agent and test configuration options
 
-**Other types:**
-- `SourceSpec` - Project source configuration
-- `TodoItem` - Todo list item
-- `AsyncIterablePrompt` - Streamable prompt
+### Matchers
+- [Custom Matchers](/api/types/matchers/) - All available assertion matchers
 
 ---
 
-## Matrix Testing
+## Utilities
 
-### [defineTestSuite](/guides/evaluation/matrix-testing/)
-Generate test combinations from arrays.
+Helper functions for configuration and setup.
+
+### [defineVibeConfig](/api/utilities/config/)
+Configure vibe-check defaults, reporters, and globals.
 
 ```typescript
-defineTestSuite({
-  name?: string;
-  matrix: Record<string, any[]>;
-  test: (combination: Record<string, any>) => void;
-}): void
-```
-
-**Example:**
-```typescript
-defineTestSuite({
-  matrix: {
-    model: ['haiku', 'sonnet', 'opus'],
-    maxTurns: [5, 10],
-  },
-  test: ({ model, maxTurns }) => {
-    vibeTest(`${model} in ${maxTurns} turns`, async ({ runAgent }) => {
-      // Test implementation
-    });
-  },
+export default defineVibeConfig({
+  reporters: ['cost', 'html'],
+  defaults: {
+    workspace: '/path/to/repo',
+    maxTurns: 10
+  }
 });
 ```
 
-Generates **6 tests** (3 models × 2 turn limits)
-
 ---
 
-## Configuration
+## Usage Patterns
 
-### [defineVibeConfig](./types.md#definevibeconfig)
-Configure Vitest with Vibe Check reporters and settings.
-
+### Testing Pattern
 ```typescript
-function defineVibeConfig(config?: UserConfig): UserConfig
+import { vibeTest, defineAgent } from '@dao/vibe-check';
+
+const agent = defineAgent({
+  name: 'test-agent',
+  model: 'claude-sonnet-4'
+});
+
+vibeTest('should implement feature', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    agent,
+    prompt: 'implement feature X',
+    workspace: '/path/to/repo'
+  });
+
+  expect(result).toHaveChangedFiles(['src/feature.ts']);
+  expect(result).toCompleteAllTodos();
+});
 ```
 
-Adds:
-- Vibe Check reporters (cost + HTML)
-- TypeScript setup
-- Sensible test timeouts
+### Automation Pattern
+```typescript
+import { vibeWorkflow, defineAgent } from '@dao/vibe-check';
+
+const builder = defineAgent({ name: 'builder' });
+const tester = defineAgent({ name: 'tester' });
+
+vibeWorkflow('ci-pipeline', async (wf) => {
+  const build = await wf.stage('build', {
+    agent: builder,
+    prompt: '/build'
+  });
+
+  await wf.stage('test', {
+    agent: tester,
+    prompt: '/test'
+  });
+}, { defaults: { workspace: '/repo' } });
+```
+
+### Evaluation Pattern
+```typescript
+import { vibeTest, defineAgent, defineTestSuite } from '@dao/vibe-check';
+
+defineTestSuite({
+  matrix: {
+    agent: [sonnetAgent, opusAgent, haikuAgent],
+    maxTurns: [8, 16]
+  },
+  test: ({ agent, maxTurns }) => {
+    vibeTest(`${agent.name} with ${maxTurns} turns`, async ({ runAgent, judge }) => {
+      const result = await runAgent({ agent, prompt: 'task', maxTurns });
+      const judgeResult = await judge(result, { rubric });
+      expect(judgeResult.passed).toBe(true);
+    });
+  }
+});
+```
 
 ---
 
 ## Related Documentation
 
-- **[Guides](/guides/)** - How to use the API in practice
-- **[Recipes](/recipes/)** - Working code examples
-- **[Examples](/examples/)** - Real-world usage
-
----
-
-[← Back to Documentation Home](../)
+- **[Getting Started](/getting-started/)** - Tutorials for learning vibe-check
+- **[How-To Guides](/guides/)** - Task-oriented guides for common use cases
+- **[Explanation](/explanation/)** - Architecture and design deep dives

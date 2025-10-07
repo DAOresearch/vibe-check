@@ -1,0 +1,761 @@
+---
+title: Rubric & JudgeResult
+description: LLM-based evaluation rubric schema and structured judgment results
+sidebar:
+  order: 8
+---
+
+`Rubric` defines evaluation criteria for LLM-based judgments, and `JudgeResult` contains the structured evaluation results. These types power the `judge()` function for quality assessment.
+
+## Rubric Interface
+
+```typescript
+interface Rubric {
+  name: string;
+  criteria: RubricCriterion[];
+  passingThreshold?: number;
+}
+```
+
+### Properties
+
+#### name
+
+```typescript
+name: string
+```
+
+Human-readable name for this rubric.
+
+**Example:**
+
+```typescript
+const rubric: Rubric = {
+  name: 'Code Quality Assessment',
+  criteria: [...]
+};
+```
+
+#### criteria
+
+```typescript
+criteria: RubricCriterion[]
+```
+
+Array of evaluation criteria.
+
+**RubricCriterion Interface:**
+
+```typescript
+interface RubricCriterion {
+  name: string;
+  description: string;
+  weight?: number;
+  threshold?: number;
+}
+```
+
+**Example:**
+
+```typescript
+const rubric: Rubric = {
+  name: 'Authentication Quality',
+  criteria: [
+    {
+      name: 'security',
+      description: 'Uses secure authentication patterns (bcrypt, JWT, etc.)',
+      weight: 3
+    },
+    {
+      name: 'error-handling',
+      description: 'Handles auth errors gracefully with user-friendly messages',
+      weight: 2
+    },
+    {
+      name: 'test-coverage',
+      description: 'Includes unit tests for auth functions',
+      weight: 1
+    }
+  ]
+};
+```
+
+#### passingThreshold
+
+```typescript
+passingThreshold?: number
+```
+
+Minimum score required to pass (0.0 to 1.0). Default: 0.7
+
+**Example:**
+
+```typescript
+const rubric: Rubric = {
+  name: 'Strict Quality Gate',
+  criteria: [...],
+  passingThreshold: 0.9  // Require 90% to pass
+};
+```
+
+---
+
+## RubricCriterion Interface
+
+```typescript
+interface RubricCriterion {
+  name: string;
+  description: string;
+  weight?: number;
+  threshold?: number;
+}
+```
+
+### Properties
+
+#### name
+
+```typescript
+name: string
+```
+
+Short identifier for the criterion (used in results).
+
+**Naming Conventions:**
+- Use kebab-case: `error-handling`, `code-quality`
+- Be specific: `jwt-security` rather than `security`
+- Avoid spaces: `test-coverage` not `test coverage`
+
+#### description
+
+```typescript
+description: string
+```
+
+Detailed description of what the judge should evaluate.
+
+**Best Practices:**
+- Be specific and measurable
+- Include examples of good/bad patterns
+- Mention tools or techniques to look for
+- Keep under 200 characters
+
+**Example:**
+
+```typescript
+{
+  name: 'error-handling',
+  description: 'Uses try-catch blocks with specific error types. Logs errors appropriately. Returns user-friendly error messages.'
+}
+```
+
+#### weight
+
+```typescript
+weight?: number
+```
+
+Relative importance of this criterion (default: 1).
+
+**How Weights Work:**
+- Higher weight = more impact on overall score
+- Weights are normalized (e.g., weights [1, 2, 3] → [16.7%, 33.3%, 50%])
+- Default weight is 1 if not specified
+
+**Example:**
+
+```typescript
+const rubric: Rubric = {
+  name: 'Security Review',
+  criteria: [
+    {
+      name: 'auth',
+      description: 'Authentication is secure',
+      weight: 5  // Most important
+    },
+    {
+      name: 'input-validation',
+      description: 'Input is validated',
+      weight: 3  // Important
+    },
+    {
+      name: 'logging',
+      description: 'Security events are logged',
+      weight: 1  // Nice to have
+    }
+  ]
+};
+```
+
+#### threshold
+
+```typescript
+threshold?: number
+```
+
+Minimum score for this criterion (0.0 to 1.0). If set, failure on this criterion can fail the entire rubric.
+
+**Example:**
+
+```typescript
+{
+  name: 'security',
+  description: 'Code has no security vulnerabilities',
+  threshold: 1.0  // Must score 100% on security
+}
+```
+
+---
+
+## JudgeResult Interface
+
+```typescript
+interface JudgeResult {
+  passed: boolean;
+  score: number;
+  criteria: CriterionResult[];
+  reasoning: string;
+  suggestions?: string[];
+}
+```
+
+### Properties
+
+#### passed
+
+```typescript
+passed: boolean
+```
+
+Whether the evaluation passed based on `passingThreshold`.
+
+**Example:**
+
+```typescript
+const judgment = await judge(result, { rubric });
+
+if (judgment.passed) {
+  console.log('✓ Quality gate passed');
+} else {
+  console.log('✗ Quality gate failed');
+}
+```
+
+#### score
+
+```typescript
+score: number
+```
+
+Overall weighted score (0.0 to 1.0).
+
+**Calculation:**
+```
+score = Σ(criterion.score × criterion.weight) / Σ(criterion.weight)
+```
+
+**Example:**
+
+```typescript
+const judgment = await judge(result, { rubric });
+
+console.log(`Score: ${(judgment.score * 100).toFixed(1)}%`);
+
+if (judgment.score >= 0.9) {
+  console.log('Excellent quality');
+} else if (judgment.score >= 0.7) {
+  console.log('Good quality');
+} else {
+  console.log('Needs improvement');
+}
+```
+
+#### criteria
+
+```typescript
+criteria: CriterionResult[]
+```
+
+Per-criterion evaluation results.
+
+**CriterionResult Interface:**
+
+```typescript
+interface CriterionResult {
+  name: string;
+  score: number;
+  reasoning: string;
+  passed: boolean;
+}
+```
+
+**Example:**
+
+```typescript
+const judgment = await judge(result, { rubric });
+
+console.log('Criterion breakdown:');
+judgment.criteria.forEach(c => {
+  const status = c.passed ? '✓' : '✗';
+  const percent = (c.score * 100).toFixed(0);
+  console.log(`${status} ${c.name}: ${percent}%`);
+  console.log(`  ${c.reasoning}`);
+});
+```
+
+#### reasoning
+
+```typescript
+reasoning: string
+```
+
+Judge's overall reasoning for the score.
+
+**Example:**
+
+```typescript
+const judgment = await judge(result, { rubric });
+
+console.log('Judge reasoning:');
+console.log(judgment.reasoning);
+```
+
+#### suggestions
+
+```typescript
+suggestions?: string[]
+```
+
+Optional improvement suggestions from the judge.
+
+**Example:**
+
+```typescript
+const judgment = await judge(result, { rubric });
+
+if (judgment.suggestions && judgment.suggestions.length > 0) {
+  console.log('Improvement suggestions:');
+  judgment.suggestions.forEach((s, i) => {
+    console.log(`${i + 1}. ${s}`);
+  });
+}
+```
+
+---
+
+## Common Rubric Patterns
+
+### Code Quality
+
+```typescript
+const codeQualityRubric: Rubric = {
+  name: 'Code Quality',
+  criteria: [
+    {
+      name: 'readability',
+      description: 'Code is well-formatted, uses clear variable names, and includes helpful comments',
+      weight: 2
+    },
+    {
+      name: 'maintainability',
+      description: 'Functions are small and focused. Code follows DRY principle. Logic is easy to follow',
+      weight: 3
+    },
+    {
+      name: 'error-handling',
+      description: 'Uses try-catch blocks appropriately. Handles edge cases. Provides meaningful error messages',
+      weight: 2
+    },
+    {
+      name: 'type-safety',
+      description: 'Uses TypeScript types correctly. No any types. Proper null checks',
+      weight: 1
+    }
+  ],
+  passingThreshold: 0.75
+};
+```
+
+### Security Review
+
+```typescript
+const securityRubric: Rubric = {
+  name: 'Security Review',
+  criteria: [
+    {
+      name: 'authentication',
+      description: 'Uses secure auth patterns (bcrypt, JWT). No plaintext passwords. Proper session management',
+      weight: 5,
+      threshold: 0.9  // Critical
+    },
+    {
+      name: 'input-validation',
+      description: 'Validates and sanitizes all user input. Prevents SQL injection, XSS, and other attacks',
+      weight: 4,
+      threshold: 0.9  // Critical
+    },
+    {
+      name: 'sensitive-data',
+      description: 'No API keys, passwords, or secrets in code. Uses environment variables',
+      weight: 3,
+      threshold: 1.0  // Must be perfect
+    },
+    {
+      name: 'security-headers',
+      description: 'Sets appropriate security headers (CSP, HSTS, etc.)',
+      weight: 2
+    }
+  ],
+  passingThreshold: 0.85
+};
+```
+
+### Test Coverage
+
+```typescript
+const testCoverageRubric: Rubric = {
+  name: 'Test Coverage',
+  criteria: [
+    {
+      name: 'unit-tests',
+      description: 'Core functions have unit tests with good coverage (>80%)',
+      weight: 3
+    },
+    {
+      name: 'edge-cases',
+      description: 'Tests cover edge cases, error conditions, and boundary values',
+      weight: 2
+    },
+    {
+      name: 'test-quality',
+      description: 'Tests are clear, isolated, and maintainable. Good use of describe/it structure',
+      weight: 1
+    }
+  ],
+  passingThreshold: 0.7
+};
+```
+
+### Accessibility
+
+```typescript
+const a11yRubric: Rubric = {
+  name: 'Accessibility',
+  criteria: [
+    {
+      name: 'semantic-html',
+      description: 'Uses semantic HTML elements (header, nav, main, button, etc.)',
+      weight: 2
+    },
+    {
+      name: 'aria-labels',
+      description: 'Proper ARIA labels and roles for screen readers',
+      weight: 3
+    },
+    {
+      name: 'keyboard-nav',
+      description: 'All interactive elements are keyboard accessible. Logical tab order',
+      weight: 2
+    },
+    {
+      name: 'color-contrast',
+      description: 'Sufficient color contrast for text (WCAG AA compliance)',
+      weight: 1
+    }
+  ],
+  passingThreshold: 0.8
+};
+```
+
+### Documentation
+
+```typescript
+const docsRubric: Rubric = {
+  name: 'Documentation Quality',
+  criteria: [
+    {
+      name: 'api-docs',
+      description: 'All public functions have JSDoc comments with @param and @returns',
+      weight: 3
+    },
+    {
+      name: 'readme',
+      description: 'README includes setup instructions, usage examples, and API reference',
+      weight: 2
+    },
+    {
+      name: 'inline-comments',
+      description: 'Complex logic has explanatory comments. Comments explain "why" not "what"',
+      weight: 1
+    }
+  ],
+  passingThreshold: 0.75
+};
+```
+
+---
+
+## Usage Examples
+
+### Basic Evaluation
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('code quality evaluation', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement user login'
+  });
+
+  const rubric: Rubric = {
+    name: 'Login Implementation',
+    criteria: [
+      {
+        name: 'security',
+        description: 'Uses bcrypt for passwords, JWT for tokens',
+        weight: 3
+      },
+      {
+        name: 'error-handling',
+        description: 'Handles invalid credentials gracefully',
+        weight: 2
+      }
+    ]
+  };
+
+  const judgment = await judge(result, { rubric });
+
+  expect(judgment.passed).toBe(true);
+  expect(judgment.score).toBeGreaterThan(0.7);
+});
+```
+
+### Detailed Analysis
+
+```typescript
+vibeTest('detailed quality analysis', async ({ runAgent, judge }) => {
+  const result = await runAgent({ prompt: '/implement' });
+
+  const rubric: Rubric = {
+    name: 'Implementation Quality',
+    criteria: [
+      { name: 'correctness', description: 'Implementation is correct', weight: 5 },
+      { name: 'performance', description: 'Code is efficient', weight: 3 },
+      { name: 'style', description: 'Follows style guide', weight: 1 }
+    ],
+    passingThreshold: 0.8
+  };
+
+  const judgment = await judge(result, { rubric });
+
+  console.log('=== Evaluation Results ===');
+  console.log(`Overall: ${judgment.passed ? 'PASS' : 'FAIL'}`);
+  console.log(`Score: ${(judgment.score * 100).toFixed(1)}%`);
+  console.log(`\nReasoning: ${judgment.reasoning}`);
+
+  console.log('\nCriterion breakdown:');
+  judgment.criteria.forEach(c => {
+    const status = c.passed ? '✓' : '✗';
+    console.log(`${status} ${c.name}: ${(c.score * 100).toFixed(0)}%`);
+    console.log(`  ${c.reasoning}`);
+  });
+
+  if (judgment.suggestions) {
+    console.log('\nSuggestions:');
+    judgment.suggestions.forEach((s, i) => {
+      console.log(`${i + 1}. ${s}`);
+    });
+  }
+});
+```
+
+### Threshold Enforcement
+
+```typescript
+vibeTest('critical security check', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement payment processing'
+  });
+
+  const rubric: Rubric = {
+    name: 'Payment Security',
+    criteria: [
+      {
+        name: 'pci-compliance',
+        description: 'Follows PCI DSS requirements. No card data in logs',
+        weight: 5,
+        threshold: 1.0  // Must be perfect
+      },
+      {
+        name: 'encryption',
+        description: 'Uses TLS for transmission. Encrypts sensitive data at rest',
+        weight: 4,
+        threshold: 0.9
+      },
+      {
+        name: 'error-handling',
+        description: 'Never exposes sensitive details in errors',
+        weight: 3,
+        threshold: 0.9
+      }
+    ],
+    passingThreshold: 0.95
+  };
+
+  const judgment = await judge(result, { rubric, throwOnFail: true });
+
+  // Only reaches here if all thresholds passed
+  expect(judgment.passed).toBe(true);
+});
+```
+
+### Custom Result Format
+
+```typescript
+import { z } from 'zod';
+
+const CustomResultSchema = z.object({
+  passed: z.boolean(),
+  score: z.number(),
+  securityScore: z.number(),
+  performanceScore: z.number(),
+  issues: z.array(z.string())
+});
+
+type CustomResult = z.infer<typeof CustomResultSchema>;
+
+vibeTest('custom judgment format', async ({ runAgent, judge }) => {
+  const result = await runAgent({ prompt: '/implement' });
+
+  const rubric: Rubric = {
+    name: 'Multi-Aspect Review',
+    criteria: [
+      { name: 'security', description: '...', weight: 3 },
+      { name: 'performance', description: '...', weight: 2 }
+    ]
+  };
+
+  const judgment = await judge<CustomResult>(result, {
+    rubric,
+    resultFormat: CustomResultSchema
+  });
+
+  console.log('Security score:', judgment.securityScore);
+  console.log('Performance score:', judgment.performanceScore);
+  console.log('Issues:', judgment.issues);
+});
+```
+
+---
+
+## Best Practices
+
+### 1. Write Clear Criteria
+
+```typescript
+// ✅ Good: Specific and measurable
+{
+  name: 'error-handling',
+  description: 'Uses try-catch for async operations. Logs errors with context. Returns user-friendly messages (not stack traces)'
+}
+
+// ❌ Bad: Vague and subjective
+{
+  name: 'quality',
+  description: 'Code is good'
+}
+```
+
+### 2. Set Appropriate Weights
+
+```typescript
+const rubric: Rubric = {
+  name: 'API Implementation',
+  criteria: [
+    {
+      name: 'correctness',
+      description: 'API returns correct responses',
+      weight: 5  // Most critical
+    },
+    {
+      name: 'performance',
+      description: 'Responses are fast (<100ms)',
+      weight: 3  // Important
+    },
+    {
+      name: 'documentation',
+      description: 'Endpoints are documented',
+      weight: 1  // Nice to have
+    }
+  ]
+};
+```
+
+### 3. Use Thresholds for Critical Criteria
+
+```typescript
+const rubric: Rubric = {
+  name: 'Production Deployment',
+  criteria: [
+    {
+      name: 'security',
+      description: 'No security vulnerabilities',
+      threshold: 1.0  // Must be perfect
+    },
+    {
+      name: 'tests',
+      description: 'All tests passing',
+      threshold: 1.0  // Must be perfect
+    },
+    {
+      name: 'performance',
+      description: 'Meets performance targets',
+      weight: 2  // Important but not blocking
+    }
+  ],
+  passingThreshold: 0.9
+};
+```
+
+### 4. Keep Criteria Focused
+
+```typescript
+// ✅ Good: Focused criteria
+const rubric: Rubric = {
+  name: 'Authentication',
+  criteria: [
+    { name: 'password-hashing', description: 'Uses bcrypt with salt rounds >= 10' },
+    { name: 'jwt-security', description: 'JWT tokens have expiration and proper signing' },
+    { name: 'session-management', description: 'Sessions timeout and can be invalidated' }
+  ]
+};
+
+// ❌ Bad: Vague umbrella criteria
+const rubric: Rubric = {
+  name: 'Authentication',
+  criteria: [
+    { name: 'security', description: 'Authentication is secure' }  // Too broad
+  ]
+};
+```
+
+### 5. Set Realistic Thresholds
+
+```typescript
+const rubric: Rubric = {
+  name: 'Code Review',
+  criteria: [...],
+  passingThreshold: 0.7  // ✅ Good: Achievable (70%)
+  // passingThreshold: 0.95  // ❌ Too strict for general use
+  // passingThreshold: 0.5   // ❌ Too lenient
+};
+```
+
+---
+
+## See Also
+
+- [judge() →](/api/core/judge/) - Function that uses rubrics
+- [Using Judge →](/guides/evaluation/using-judge/) - Judge usage guide
+- [Rubrics Guide →](/guides/evaluation/rubrics/) - Rubric design patterns
+- [Custom Matchers →](/api/types/matchers/) - `toPassRubric()` matcher

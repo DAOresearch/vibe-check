@@ -1,336 +1,689 @@
 ---
-title: First Automation
-description: Build your first multi-stage agent pipeline in 10 minutes
+title: Your First Workflow
+description: Build multi-stage automation pipelines that chain agents together
 sidebar:
-  order: 5
+  order: 4
 ---
 
-[Getting Started](./) > First Automation
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
----
+In this tutorial, you'll build a **multi-stage automation workflow** that chains agents together to accomplish complex tasks. Unlike tests (which focus on validation), workflows are optimized for **production automation** with features like stage management, loops, and cumulative context.
+
+<Aside type="tip">
+  **New to vibe-check?** This tutorial assumes you've completed the [Quickstart →](/getting-started/quickstart/) and understand basic testing concepts.
+</Aside>
 
 ## What You'll Build
 
-A three-stage refactoring pipeline that:
-1. Analyzes code for issues
-2. Applies fixes automatically
-3. Runs tests to verify changes
+A complete automation pipeline that:
+1. **Analyzes** a codebase for issues
+2. **Fixes** the issues found
+3. **Tests** the fixes
+4. **Retries** if tests fail (with a loop)
+5. **Reports** results
 
-**Estimated time:** 10 minutes
-
----
-
-## Prerequisites
-
-- Node.js 18+ or Bun installed
-- Vibe Check installed (`npm install @dao/vibe-check` or `bun add @dao/vibe-check`)
-- Claude Code CLI configured
-- A Git repository to work with
+We'll use `vibeWorkflow` instead of `vibeTest` to optimize for automation.
 
 ---
 
-## Step 1: Create Your Test File
+## vibeTest vs vibeWorkflow
 
-Create `refactor-pipeline.test.ts`:
+Before we start, understand the difference:
+
+| Feature | vibeTest | vibeWorkflow |
+|---------|----------|--------------|
+| **Purpose** | Testing & evaluation | Production automation |
+| **Assertions** | ✅ Uses `expect()` | ❌ No assertions (logs instead) |
+| **Failure Mode** | Fails test on error | Continues, reports errors |
+| **Context** | VibeTestContext (with matchers) | WorkflowContext (with stages) |
+| **Use Case** | Benchmarking, quality gates | CI/CD, deployments, migrations |
+
+<Aside type="note">
+  **When to use each:**
+  - **vibeTest**: "Did the agent do what I expected?" (validation)
+  - **vibeWorkflow**: "Make this happen" (automation)
+</Aside>
+
+---
+
+## Basic Workflow
+
+Let's start with a simple 3-stage workflow:
+
+<Steps>
+
+1. **Create the workflow file**
+
+   Create `workflows/refactor-pipeline.ts`:
+
+   ```typescript
+   import { vibeWorkflow } from '@dao/vibe-check';
+
+   vibeWorkflow('refactor pipeline', async (wf) => {
+     // Stage 1: Analyze code
+     const analyze = await wf.stage('analyze', {
+       prompt: '/analyze src/ --find-issues'
+     });
+
+     // Stage 2: Fix issues
+     const fix = await wf.stage('fix', {
+       prompt: `/fix issues from ${analyze.bundleDir}/summary.json`
+     });
+
+     // Stage 3: Run tests
+     const test = await wf.stage('test', {
+       prompt: '/test'
+     });
+
+     // Log results
+     console.log('Pipeline complete!');
+     console.log('Issues found:', analyze.files.stats().total);
+     console.log('Files fixed:', fix.files.stats().modified);
+     console.log('Tests passed:', test.tools.succeeded().length);
+   });
+   ```
+
+2. **Run the workflow**
+
+   ```bash
+   vitest workflows/refactor-pipeline.ts
+   ```
+
+3. **See the output**
+
+   ```
+   ✓ workflows/refactor-pipeline.ts (1)
+     ✓ refactor pipeline (45.2s)
+       - Stage: analyze (12.1s)
+       - Stage: fix (28.3s)
+       - Stage: test (4.8s)
+
+   Pipeline complete!
+   Issues found: 8
+   Files fixed: 5
+   Tests passed: 12
+   ```
+
+</Steps>
+
+---
+
+## Understanding Workflow Context
+
+The `WorkflowContext` (passed as `wf`) provides:
+
+### `wf.stage(name, opts)`
+
+Execute one stage of the workflow:
 
 ```typescript
-import { vibeWorkflow, defineAgent } from '@dao/vibe-check';
+const result = await wf.stage('stage-name', {
+  prompt: 'What to do',
+  model: 'claude-3-5-sonnet-latest',  // Optional
+  workspace: '/path/to/workspace',     // Optional
+  // ... all RunAgentOptions
+});
+```
+
+Returns an `AgentExecution` (awaitable) with the `RunResult`.
+
+### Cumulative State
+
+Access data across **all stages**:
+
+```typescript
+vibeWorkflow('multi-stage', async (wf) => {
+  await wf.stage('stage1', { prompt: 'Create files' });
+  await wf.stage('stage2', { prompt: 'Modify files' });
+
+  // Access all files changed across both stages
+  const allFiles = wf.files.allChanged();
+  console.log('Total files changed:', allFiles.length);
+
+  // Get files from specific stage
+  const stage1Files = wf.files.byStage('stage1');
+  const stage2Files = wf.files.byStage('stage2');
+
+  // Access all tool calls with stage context
+  const allTools = wf.tools.all();
+  for (const { stage, call } of allTools) {
+    console.log(`[${stage}] Used ${call.name}`);
+  }
+});
+```
+
+### Timeline Events
+
+Access unified timeline across stages:
+
+```typescript
+// Iterate over all events with stage context
+for await (const { stage, evt } of wf.timeline.events()) {
+  console.log(`[${stage}] ${evt.type} at ${evt.timestamp}`);
+}
 ```
 
 ---
 
-## Step 2: Define Your Agents
+## Passing Data Between Stages
 
-Add three specialized agents:
+Stages can communicate via:
+
+### 1. File System (Recommended)
 
 ```typescript
-// Analyzer: reads and analyzes code
-const analyzer = defineAgent({
-  name: 'code-analyzer',
-  model: 'claude-sonnet-4',
-  tools: ['Read', 'Grep', 'Glob']
-});
+vibeWorkflow('data passing', async (wf) => {
+  // Stage 1: Analyze and write report
+  const analyze = await wf.stage('analyze', {
+    prompt: 'Analyze src/ and write report to analysis.json'
+  });
 
-// Fixer: applies refactorings
-const fixer = defineAgent({
-  name: 'refactor',
-  model: 'claude-opus-4',
-  tools: ['Read', 'Edit', 'Write']
-});
-
-// Tester: runs tests
-const tester = defineAgent({
-  name: 'tester',
-  model: 'claude-haiku-4',
-  tools: ['Bash', 'Read']
+  // Stage 2: Read report and fix
+  const fix = await wf.stage('fix', {
+    prompt: 'Read analysis.json and fix all issues'
+  });
 });
 ```
 
-**Why different models?**
-- Analyzer: Sonnet balances speed and accuracy
-- Fixer: Opus provides highest quality refactoring
-- Tester: Haiku is fast and cost-effective for running tests
+### 2. Bundle Directory
+
+```typescript
+vibeWorkflow('using bundles', async (wf) => {
+  const analyze = await wf.stage('analyze', {
+    prompt: 'Analyze code'
+  });
+
+  // Pass bundle path to next stage
+  const fix = await wf.stage('fix', {
+    prompt: `Fix issues. Analysis results: ${analyze.bundleDir}`
+  });
+});
+```
+
+### 3. Context Parameter (Advanced)
+
+```typescript
+vibeWorkflow('with context', async (wf) => {
+  const analyze = await wf.stage('analyze', {
+    prompt: 'Analyze code'
+  });
+
+  // Pass previous result as context
+  const fix = await wf.stage('fix', {
+    prompt: 'Fix issues found',
+    context: analyze  // Passes full RunResult
+  });
+});
+```
 
 ---
 
-## Step 3: Build the Pipeline
+## Loop Patterns with `until()`
 
-Add your workflow:
+The `until()` helper enables retry logic and iterative workflows:
+
+### Basic Retry Loop
 
 ```typescript
-vibeWorkflow('refactor pipeline', async (wf) => {
-  // Stage 1: Analyze
-  const analysis = await wf.stage('analyze', {
-    agent: analyzer,
-    prompt: '/analyze codebase for refactoring opportunities in src/'
+vibeWorkflow('retry until success', async (wf) => {
+  // Run until tests pass (max 3 attempts)
+  const results = await wf.until(
+    (latest) => latest.tools.succeeded().length > 0,
+    () => wf.stage('test', { prompt: '/test' }),
+    { maxIterations: 3 }
+  );
+
+  console.log(`Tests passed after ${results.length} attempts`);
+});
+```
+
+### Convergence Loop
+
+```typescript
+vibeWorkflow('fix until clean', async (wf) => {
+  let iteration = 0;
+
+  const results = await wf.until(
+    (latest) => {
+      // Stop when no files changed (converged)
+      const filesChanged = latest.files.stats().total;
+      console.log(`Iteration ${iteration++}: ${filesChanged} files changed`);
+      return filesChanged === 0;
+    },
+    () => wf.stage('fix-iteration', {
+      prompt: '/fix --auto'
+    }),
+    { maxIterations: 5 }
+  );
+
+  console.log(`Converged after ${results.length} iterations`);
+});
+```
+
+### Cost-Aware Loop
+
+```typescript
+vibeWorkflow('fix with budget', async (wf) => {
+  let totalCost = 0;
+
+  const results = await wf.until(
+    (latest) => {
+      totalCost += latest.metrics.totalCostUsd ?? 0;
+
+      // Stop if all issues fixed OR budget exceeded
+      const issuesRemaining = latest.tools.failed().length;
+      return issuesRemaining === 0 || totalCost > 10.0;
+    },
+    () => wf.stage('fix', { prompt: '/fix' }),
+    { maxIterations: 10 }
+  );
+
+  console.log(`Total cost: $${totalCost.toFixed(2)}`);
+});
+```
+
+<Aside type="caution">
+  **until() Returns Array:**
+
+  The `until()` helper returns an **array of all RunResults** from each iteration. The last item is the final result.
+
+  ```typescript
+  const results = await wf.until(/* ... */);
+  const finalResult = results[results.length - 1];
+  ```
+</Aside>
+
+---
+
+## Complete Example: CI/CD Pipeline
+
+Here's a production-ready workflow with error handling, retries, and reporting:
+
+```typescript
+import { vibeWorkflow } from '@dao/vibe-check';
+import { writeFileSync } from 'fs';
+
+vibeWorkflow('ci/cd pipeline', async (wf) => {
+  console.log('🚀 Starting CI/CD pipeline...\n');
+
+  // Stage 1: Lint and format
+  console.log('📝 Stage 1: Linting...');
+  const lint = await wf.stage('lint', {
+    prompt: 'Run linter and fix all issues automatically'
   });
 
-  console.log('Analysis complete:', {
-    filesScanned: analysis.files.stats().total,
-    issuesFound: analysis.todos.filter(t => t.status === 'pending').length
+  if (lint.tools.failed().length > 0) {
+    console.error('❌ Linting failed');
+    return; // Exit early
+  }
+  console.log('✅ Linting passed\n');
+
+  // Stage 2: Type checking
+  console.log('🔍 Stage 2: Type checking...');
+  const typecheck = await wf.stage('typecheck', {
+    prompt: 'Run TypeScript type checker and fix all errors'
   });
 
-  // Stage 2: Apply fixes
-  const fixes = await wf.stage('refactor', {
-    agent: fixer,
-    prompt: '/apply recommended refactorings from analysis',
-    context: analysis  // Pass analysis context
+  if (typecheck.tools.failed().length > 0) {
+    console.error('❌ Type check failed');
+    return;
+  }
+  console.log('✅ Type check passed\n');
+
+  // Stage 3: Run tests with retries
+  console.log('🧪 Stage 3: Testing...');
+  const testResults = await wf.until(
+    (latest) => {
+      // Check if tests passed
+      const bashCalls = latest.tools.all().filter(t => t.name === 'Bash');
+      const testRun = bashCalls.find(t =>
+        t.input.command?.includes('vitest')
+      );
+      return testRun?.ok ?? false;
+    },
+    () => wf.stage('test-retry', {
+      prompt: '/test --fix-failures'
+    }),
+    { maxIterations: 3 }
+  );
+
+  if (testResults[testResults.length - 1].tools.succeeded().length === 0) {
+    console.error('❌ Tests failed after 3 attempts');
+    return;
+  }
+  console.log(`✅ Tests passed (${testResults.length} attempts)\n`);
+
+  // Stage 4: Build
+  console.log('📦 Stage 4: Building...');
+  const build = await wf.stage('build', {
+    prompt: '/build --production'
   });
 
-  console.log('Refactoring complete:', {
-    filesChanged: fixes.files.stats().total,
-    cost: fixes.metrics.totalCostUsd
+  if (build.tools.failed().length > 0) {
+    console.error('❌ Build failed');
+    return;
+  }
+  console.log('✅ Build succeeded\n');
+
+  // Generate report
+  const report = {
+    pipeline: 'ci/cd',
+    stages: {
+      lint: {
+        filesChanged: lint.files.stats().total,
+        cost: lint.metrics.totalCostUsd
+      },
+      typecheck: {
+        filesChanged: typecheck.files.stats().total,
+        cost: typecheck.metrics.totalCostUsd
+      },
+      test: {
+        attempts: testResults.length,
+        cost: testResults.reduce((sum, r) =>
+          sum + (r.metrics.totalCostUsd ?? 0), 0
+        )
+      },
+      build: {
+        duration: build.metrics.durationMs,
+        cost: build.metrics.totalCostUsd
+      }
+    },
+    totalCost: wf.files.allChanged().reduce((sum, f) => {
+      // Calculate from all stages (simplified)
+      return sum;
+    }, 0)
+  };
+
+  writeFileSync('pipeline-report.json', JSON.stringify(report, null, 2));
+  console.log('📊 Report saved to pipeline-report.json');
+  console.log('\n✅ Pipeline complete!');
+});
+```
+
+---
+
+## Workflow Defaults
+
+Set defaults for all stages to avoid repetition:
+
+```typescript
+vibeWorkflow('deployment', async (wf) => {
+  // All stages inherit these defaults
+  await wf.stage('deploy-backend', {
+    prompt: '/deploy backend'
+    // Uses workspace and model from defaults
   });
 
-  // Stage 3: Run tests
-  const tests = await wf.stage('test', {
-    agent: tester,
-    prompt: '/run npm test and verify changes'
+  await wf.stage('deploy-frontend', {
+    prompt: '/deploy frontend'
+    // Uses workspace and model from defaults
   });
 
-  console.log('Tests complete:', {
-    testsPassed: tests.todos.every(t => t.status === 'completed')
+  // Override defaults for specific stage
+  await wf.stage('deploy-docs', {
+    prompt: '/deploy',
+    workspace: '/path/to/docs-repo',  // Override workspace
+    model: 'claude-3-5-haiku-latest'   // Override model
   });
 
-  // Cumulative metrics
-  console.log('\nPipeline summary:', {
-    totalFilesChanged: wf.files.allChanged().length,
-    totalCost: analysis.metrics.totalCostUsd! +
-               fixes.metrics.totalCostUsd! +
-               tests.metrics.totalCostUsd!
-  });
 }, {
-  defaults: { workspace: '/path/to/your/repo' }
+  // Workflow options with defaults
+  timeout: 600000,  // 10 minutes
+  defaults: {
+    workspace: '/path/to/main-repo',
+    model: 'claude-3-5-sonnet-latest'
+  }
 });
 ```
 
 ---
 
-## Step 4: Run the Pipeline
+## Multi-Workspace Workflows
 
-```bash
-bun test refactor-pipeline.test.ts
-# or
-npm test refactor-pipeline.test.ts
+Some workflows span multiple repositories:
+
+```typescript
+vibeWorkflow('full-stack deployment', async (wf) => {
+  // Deploy backend (main repo)
+  await wf.stage('deploy-backend', {
+    workspace: '/repos/backend',
+    prompt: '/deploy --production'
+  });
+
+  // Deploy frontend (different repo)
+  await wf.stage('deploy-frontend', {
+    workspace: '/repos/frontend',
+    prompt: '/deploy --production'
+  });
+
+  // Update docs (third repo)
+  await wf.stage('update-docs', {
+    workspace: '/repos/docs',
+    prompt: '/update-version'
+  });
+});
 ```
-
-You'll see:
-1. Analysis progress and findings
-2. Refactoring changes being applied
-3. Test execution results
-4. Cumulative pipeline summary
 
 ---
 
-## Step 5: View the Results
+## Error Handling
 
-### Terminal Output
-
-```
-✓ refactor pipeline (45s)
-
-Analysis complete: {
-  filesScanned: 12,
-  issuesFound: 8
-}
-
-Refactoring complete: {
-  filesChanged: 7,
-  cost: 1.23
-}
-
-Tests complete: {
-  testsPassed: true
-}
-
-Pipeline summary: {
-  totalFilesChanged: 7,
-  totalCost: 1.85
-}
-```
-
-### HTML Report
-
-Open `.vibe-reports/index.html` to see:
-- Stage-by-stage timeline
-- File changes with diffs
-- Tool call details
-- Cost breakdown
-- Todo tracking
-
----
-
-## Step 6: Add Error Recovery (Optional)
-
-Make your pipeline more resilient:
+Unlike tests, workflows should handle errors gracefully:
 
 ```typescript
 vibeWorkflow('resilient pipeline', async (wf) => {
-  const analysis = await wf.stage('analyze', {
-    agent: analyzer,
-    prompt: '/analyze codebase'
-  });
-
-  const fixes = await wf.stage('refactor', {
-    agent: fixer,
-    prompt: '/apply refactorings',
-    context: analysis
-  });
-
-  // Test with retry logic
-  let testsPassed = false;
-  let attempt = 0;
-
-  while (!testsPassed && attempt++ < 3) {
-    const tests = await wf.stage(`test-attempt-${attempt}`, {
-      agent: tester,
-      prompt: '/run tests'
-    });
-
-    testsPassed = tests.todos.every(t => t.status === 'completed');
-
-    if (!testsPassed && attempt < 3) {
-      // Fix failing tests
-      await wf.stage(`fix-tests-${attempt}`, {
-        agent: fixer,
-        prompt: '/fix failing tests'
-      });
-    }
-  }
-
-  expect(testsPassed).toBe(true);
-});
-```
-
----
-
-## Step 7: Add Conditional Logic (Optional)
-
-Execute stages based on results:
-
-```typescript
-vibeWorkflow('conditional pipeline', async (wf) => {
-  const analysis = await wf.stage('analyze', {
-    agent: analyzer,
+  const analyze = await wf.stage('analyze', {
     prompt: '/analyze'
   });
 
-  // Only refactor if issues found
-  if (analysis.todos.filter(t => t.status === 'pending').length > 0) {
-    await wf.stage('refactor', {
-      agent: fixer,
-      prompt: '/apply fixes',
-      context: analysis
+  // Check for failures
+  if (analyze.tools.failed().length > 0) {
+    console.error('Analysis failed:', analyze.tools.failed());
+
+    // Try recovery stage
+    const recover = await wf.stage('recover', {
+      prompt: '/recover-from-failure'
     });
+
+    if (recover.tools.failed().length > 0) {
+      console.error('Recovery failed. Aborting pipeline.');
+      return; // Exit workflow
+    }
   }
 
-  // Only run expensive tests if code changed
-  if (wf.files.allChanged().length > 0) {
-    await wf.stage('integration-tests', {
-      agent: tester,
-      prompt: '/run integration tests'
-    });
-  }
+  // Continue with next stage
+  await wf.stage('deploy', {
+    prompt: '/deploy'
+  });
+});
+```
+
+<Aside type="tip">
+  **Logging Strategy:**
+
+  In workflows, use `console.log()` instead of `expect()` assertions. Workflows should log progress and report errors, not throw exceptions.
+</Aside>
+
+---
+
+## Workflow Modifiers
+
+Like `vibeTest`, workflows support modifiers:
+
+### skip
+
+```typescript
+vibeWorkflow.skip('not ready', async (wf) => {
+  // Workflow is skipped
+});
+```
+
+### only
+
+```typescript
+vibeWorkflow.only('focus on this', async (wf) => {
+  // Only this workflow runs
+});
+```
+
+### todo
+
+```typescript
+vibeWorkflow.todo('implement later', async (wf) => {
+  // Marked as TODO
 });
 ```
 
 ---
 
-## What You Learned
+## Real-World Examples
 
-✅ Creating specialized agents for different tasks
-✅ Building multi-stage pipelines with `vibeWorkflow`
-✅ Passing context between stages
-✅ Tracking cumulative state across stages
-✅ Adding error recovery and conditional logic
+### Database Migration
+
+```typescript
+vibeWorkflow('database migration', async (wf) => {
+  // Backup database
+  await wf.stage('backup', {
+    prompt: '/backup database --timestamp'
+  });
+
+  // Run migration
+  const migrate = await wf.stage('migrate', {
+    prompt: '/migrate database --production'
+  });
+
+  // Verify migration
+  const verify = await wf.stage('verify', {
+    prompt: '/verify migration succeeded'
+  });
+
+  if (verify.tools.failed().length > 0) {
+    // Rollback if verification failed
+    await wf.stage('rollback', {
+      prompt: '/rollback migration'
+    });
+  }
+});
+```
+
+### Monorepo Refactor
+
+```typescript
+vibeWorkflow('monorepo refactor', async (wf) => {
+  const packages = ['@app/core', '@app/ui', '@app/api'];
+
+  for (const pkg of packages) {
+    await wf.stage(`refactor-${pkg}`, {
+      workspace: `/monorepo/packages/${pkg}`,
+      prompt: '/refactor --modernize'
+    });
+  }
+
+  // Update dependencies after all refactors
+  await wf.stage('update-deps', {
+    workspace: '/monorepo',
+    prompt: '/update dependencies --all-packages'
+  });
+});
+```
+
+### Documentation Generation
+
+```typescript
+vibeWorkflow('generate docs', async (wf) => {
+  // Generate API docs from code
+  await wf.stage('api-docs', {
+    prompt: '/generate-docs --api'
+  });
+
+  // Generate guides from examples
+  await wf.stage('guides', {
+    prompt: '/generate-docs --guides'
+  });
+
+  // Build and deploy
+  await wf.stage('deploy-docs', {
+    workspace: '/repos/docs-site',
+    prompt: '/build-and-deploy'
+  });
+});
+```
+
+---
+
+## Best Practices
+
+### ✅ DO: Log Progress
+
+```typescript
+vibeWorkflow('pipeline', async (wf) => {
+  console.log('Starting stage 1...');
+  const result = await wf.stage('stage1', { prompt: '...' });
+  console.log(`Stage 1 complete: ${result.files.stats().total} files changed`);
+});
+```
+
+### ✅ DO: Handle Errors Gracefully
+
+```typescript
+if (result.tools.failed().length > 0) {
+  console.error('Stage failed, attempting recovery...');
+  await wf.stage('recover', { prompt: '/recover' });
+}
+```
+
+### ✅ DO: Use Descriptive Stage Names
+
+```typescript
+await wf.stage('analyze-typescript-errors', { prompt: '...' });
+await wf.stage('fix-typescript-errors', { prompt: '...' });
+await wf.stage('verify-typescript-errors-fixed', { prompt: '...' });
+```
+
+### ❌ DON'T: Use expect() Assertions
+
+```typescript
+// ❌ Bad: Workflows don't use assertions
+vibeWorkflow('bad', async (wf) => {
+  const result = await wf.stage('test', { prompt: '...' });
+  expect(result).toCompleteAllTodos(); // Wrong!
+});
+
+// ✅ Good: Log and handle errors
+vibeWorkflow('good', async (wf) => {
+  const result = await wf.stage('test', { prompt: '...' });
+  if (result.todos.some(t => t.status !== 'completed')) {
+    console.error('Some TODOs incomplete');
+  }
+});
+```
+
+### ❌ DON'T: Forget to await stages
+
+```typescript
+// ❌ Bad: Missing await
+const result = wf.stage('test', { prompt: '...' });
+
+// ✅ Good: Always await
+const result = await wf.stage('test', { prompt: '...' });
+```
 
 ---
 
 ## Next Steps
 
-### Explore More Patterns
+You've learned how to build automation workflows! Now explore:
 
-- **[Building Pipelines Guide](/guides/automation/pipelines/)** - Advanced pipeline patterns
-- **[Multi-Agent Orchestration](/guides/automation/orchestration/)** - Coordinating multiple agents
-- **[vibeWorkflow API](/api/vibeWorkflow/)** - Complete API reference
-
-### Try These Enhancements
-
-1. **Add quality gates:**
-   ```typescript
-   const fixes = await wf.stage('refactor', { ... });
-   expect(fixes).toHaveNoErrorsInLogs();
-   expect(fixes).toStayUnderCost(3.00);
-   ```
-
-2. **Use loop helpers:**
-   ```typescript
-   await wf.until(
-     (result) => result.todos.every(t => t.status === 'completed'),
-     async () => wf.stage('fix', { agent: fixer, prompt: '/fix' }),
-     { maxIterations: 3 }
-   );
-   ```
-
-3. **Track cumulative changes:**
-   ```typescript
-   const allChanges = wf.files.allChanged();
-   const tsFiles = allChanges.filter(f => f.path.endsWith('.ts'));
-   console.log(`Changed ${tsFiles.length} TypeScript files`);
-   ```
+- **[First Evaluation →](/getting-started/first-evaluation/)** - Matrix testing and benchmarking
+- **[vibeWorkflow API →](/api/core/vibeworkflow/)** - Complete workflow API reference
+- **[Building Workflows Guide →](/guides/automation/building-workflows/)** - Advanced patterns
+- **[Loop Patterns Guide →](/guides/automation/loop-patterns/)** - Mastering `until()`
+- **[Error Handling Guide →](/guides/automation/error-handling/)** - Production-ready error strategies
 
 ---
 
-## Troubleshooting
+## Reference
 
-### Pipeline times out
-
-Increase timeout:
-```typescript
-vibeWorkflow('long pipeline', async (wf) => {
-  // ...
-}, { timeout: 300000 });  // 5 minutes
-```
-
-### Stages fail
-
-Add error checking:
-```typescript
-const result = await wf.stage('risky', { ... });
-if (result.messages.some(m => m.summary.includes('error'))) {
-  await wf.stage('rollback', { ... });
-}
-```
-
-### High costs
-
-Use cheaper models:
-```typescript
-const costEffectiveAgent = defineAgent({
-  model: 'claude-haiku-4'  // Much cheaper
-});
-```
-
----
-
-[← Back to Getting Started](./) | [Next: First Evaluation →](/getting-started/first-evaluation/)
+- **[WorkflowContext →](/api/types/workflow-context/)** - Complete context interface
+- **[runAgent() →](/api/core/runagent/)** - Agent execution options
+- **[RunResult →](/api/types/run-result/)** - Captured execution data

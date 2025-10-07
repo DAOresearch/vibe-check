@@ -1,0 +1,733 @@
+---
+title: Loop Patterns
+description: Implement retries, iterations, and conditional loops in automation workflows
+sidebar:
+  order: 2
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers loop patterns for automation workflows. You'll learn how to implement retries, iterative processing, and conditional loops using the `until()` helper and other techniques.
+
+<Aside type="tip">
+  **Prerequisites:** This guide assumes you understand workflow basics. If you're new to workflows, start with [Building Workflows →](/guides/automation/building-workflows/).
+</Aside>
+
+## When to Use Loops
+
+Use loop patterns for:
+- **Retries** - Retry failed operations until they succeed
+- **Iterative refinement** - Improve results through multiple passes
+- **Polling** - Wait for conditions to be met
+- **Batch processing** - Process items one at a time
+
+---
+
+## The until() Helper
+
+The `until()` helper is the primary way to implement loops in workflows. It executes a body function repeatedly until a predicate returns `true` or a maximum iteration count is reached.
+
+### Basic Usage
+
+```typescript
+import { vibeWorkflow } from '@dao/vibe-check';
+
+vibeWorkflow('retry example', async (wf) => {
+  const results = await wf.until(
+    // Predicate: returns true when loop should stop
+    (latest) => latest.files.changed().length > 0,
+
+    // Body: executes each iteration
+    async () => {
+      return await wf.stage('attempt fix', {
+        prompt: '/fix-errors'
+      });
+    },
+
+    // Options
+    { maxIterations: 5 }
+  );
+
+  console.log(`Completed in ${results.length} iterations`);
+});
+```
+
+### Signature
+
+```typescript
+wf.until(
+  predicate: (latest: RunResult) => boolean | Promise<boolean>,
+  body: () => Promise<RunResult>,
+  opts?: { maxIterations?: number }  // Default: 10
+): Promise<RunResult[]>
+```
+
+**Parameters:**
+- `predicate` - Function that receives the latest `RunResult` and returns `true` to stop
+- `body` - Function that executes each iteration and returns `RunResult`
+- `opts.maxIterations` - Maximum iterations before stopping (default: 10)
+
+**Returns:**
+- Array of all `RunResult` objects from each iteration
+
+<Aside type="note">
+  The `until()` helper always executes the body at least once, similar to a `do-while` loop.
+</Aside>
+
+---
+
+## Common Loop Patterns
+
+### 1. Retry Until Success
+
+Retry a task until it succeeds (no errors in logs):
+
+```typescript
+vibeWorkflow('retry until clean', async (wf) => {
+  const results = await wf.until(
+    // Stop when no errors in logs
+    (latest) => {
+      const hasErrors = latest.logs.some(log =>
+        log.toLowerCase().includes('error')
+      );
+      return !hasErrors;
+    },
+
+    // Try to fix errors
+    async () => {
+      return await wf.stage('fix errors', {
+        prompt: '/fix-all-errors'
+      });
+    },
+
+    { maxIterations: 3 }
+  );
+
+  if (results.length >= 3) {
+    console.log('Failed after 3 attempts');
+  } else {
+    console.log(`Succeeded on attempt ${results.length}`);
+  }
+});
+```
+
+### 2. Retry Until Tests Pass
+
+Keep fixing until all tests pass:
+
+```typescript
+vibeWorkflow('test-driven fixes', async (wf) => {
+  const results = await wf.until(
+    // Stop when tests pass
+    (latest) => {
+      const testTools = latest.tools.filter('Bash').filter(t =>
+        t.name === 'Bash' && t.input?.includes('test')
+      );
+
+      return testTools.every(t =>
+        t.result?.includes('PASS') || t.result?.includes('✓')
+      );
+    },
+
+    // Fix and test
+    async () => {
+      const fix = await wf.stage('fix failing tests', {
+        prompt: '/fix-test-failures'
+      });
+
+      const test = await wf.stage('run tests', {
+        prompt: '/test'
+      });
+
+      return test;  // Return test result for predicate
+    },
+
+    { maxIterations: 5 }
+  );
+
+  console.log(`Tests passed after ${results.length} iterations`);
+});
+```
+
+### 3. Iterative Refinement
+
+Improve results through multiple passes:
+
+```typescript
+vibeWorkflow('iterative improvement', async (wf) => {
+  const results = await wf.until(
+    // Stop when code quality is high enough
+    (latest) => {
+      const lintErrors = latest.files.filter('**/*.ts')
+        .flatMap(f => f.after?.text() || '')
+        .filter(line => line.includes('// TODO') || line.includes('// FIXME'));
+
+      return lintErrors.length === 0;
+    },
+
+    // Refactor incrementally
+    async () => {
+      return await wf.stage('refactor iteration', {
+        prompt: '/refactor --incremental'
+      });
+    },
+
+    { maxIterations: 10 }
+  );
+
+  console.log(`Refactored through ${results.length} passes`);
+});
+```
+
+### 4. File-Based Convergence
+
+Loop until file changes stabilize:
+
+```typescript
+vibeWorkflow('converge changes', async (wf) => {
+  let previousFileCount = 0;
+
+  const results = await wf.until(
+    // Stop when no new files are changed
+    (latest) => {
+      const currentCount = latest.files.stats().total;
+      const converged = currentCount === previousFileCount;
+      previousFileCount = currentCount;
+      return converged;
+    },
+
+    // Make incremental changes
+    async () => {
+      return await wf.stage('incremental update', {
+        prompt: '/update-dependencies'
+      });
+    },
+
+    { maxIterations: 8 }
+  );
+
+  console.log(`Converged after ${results.length} iterations`);
+});
+```
+
+---
+
+## Advanced Loop Patterns
+
+### Exponential Backoff
+
+Add delays between retries with exponential backoff:
+
+```typescript
+vibeWorkflow('retry with backoff', async (wf) => {
+  let attempt = 0;
+
+  const results = await wf.until(
+    // Stop on success
+    (latest) => {
+      return !latest.logs.some(log => log.includes('ECONNREFUSED'));
+    },
+
+    // Retry with increasing delay
+    async () => {
+      attempt++;
+
+      if (attempt > 1) {
+        const delayMs = Math.min(1000 * Math.pow(2, attempt - 2), 10000);
+        console.log(`Waiting ${delayMs}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+
+      return await wf.stage(`attempt ${attempt}`, {
+        prompt: '/deploy'
+      });
+    },
+
+    { maxIterations: 5 }
+  );
+
+  console.log(`Succeeded after ${attempt} attempts`);
+});
+```
+
+### Conditional Early Exit
+
+Exit loop early based on error severity:
+
+```typescript
+vibeWorkflow('smart retry', async (wf) => {
+  const results = await wf.until(
+    // Stop on success OR fatal error
+    (latest) => {
+      const hasFatalError = latest.logs.some(log =>
+        log.includes('FATAL') || log.includes('EACCES')
+      );
+
+      if (hasFatalError) {
+        console.error('Fatal error detected, aborting retries');
+        return true;  // Stop immediately
+      }
+
+      // Check for success
+      return latest.files.changed().length > 0;
+    },
+
+    async () => {
+      return await wf.stage('attempt operation', {
+        prompt: '/run-migration'
+      });
+    },
+
+    { maxIterations: 3 }
+  );
+
+  const lastResult = results[results.length - 1];
+  const hadFatalError = lastResult.logs.some(log => log.includes('FATAL'));
+
+  if (hadFatalError) {
+    throw new Error('Operation failed with fatal error');
+  }
+});
+```
+
+### Accumulating Context Across Iterations
+
+Build up context from all iterations:
+
+```typescript
+vibeWorkflow('cumulative analysis', async (wf) => {
+  const allIssues: string[] = [];
+
+  const results = await wf.until(
+    // Stop when no new issues found
+    (latest) => {
+      const newIssues = extractIssues(latest);
+      const hasNewIssues = newIssues.some(issue => !allIssues.includes(issue));
+
+      if (hasNewIssues) {
+        allIssues.push(...newIssues);
+        return false;  // Continue loop
+      }
+
+      return true;  // No new issues, stop
+    },
+
+    async () => {
+      return await wf.stage('scan for issues', {
+        prompt: '/scan --deep'
+      });
+    },
+
+    { maxIterations: 5 }
+  );
+
+  console.log(`Found ${allIssues.length} total issues across ${results.length} scans`);
+});
+
+function extractIssues(result: RunResult): string[] {
+  // Extract issues from result (example implementation)
+  return result.logs
+    .filter(log => log.startsWith('ISSUE:'))
+    .map(log => log.replace('ISSUE:', '').trim());
+}
+```
+
+---
+
+## Manual Loop Patterns
+
+For more complex scenarios, you can implement loops manually:
+
+### Simple While Loop
+
+```typescript
+vibeWorkflow('manual while loop', async (wf) => {
+  let attempts = 0;
+  let success = false;
+
+  while (!success && attempts < 5) {
+    attempts++;
+
+    const result = await wf.stage(`attempt ${attempts}`, {
+      prompt: '/deploy'
+    });
+
+    success = !result.logs.some(log => log.includes('ERROR'));
+
+    if (!success) {
+      console.log(`Attempt ${attempts} failed, retrying...`);
+    }
+  }
+
+  if (success) {
+    console.log(`Deployed successfully on attempt ${attempts}`);
+  } else {
+    throw new Error('Deployment failed after 5 attempts');
+  }
+});
+```
+
+### For Loop with Index
+
+```typescript
+vibeWorkflow('manual for loop', async (wf) => {
+  const maxAttempts = 3;
+  let lastResult: RunResult | null = null;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    console.log(`Iteration ${i + 1}/${maxAttempts}`);
+
+    lastResult = await wf.stage(`iteration ${i + 1}`, {
+      prompt: `/process --batch=${i}`
+    });
+
+    // Check if we should stop early
+    const allDone = lastResult.files.filter('**/*.pending').length === 0;
+    if (allDone) {
+      console.log('All items processed, stopping early');
+      break;
+    }
+  }
+
+  console.log('Processing complete');
+});
+```
+
+### Do-While Pattern
+
+```typescript
+vibeWorkflow('do-while pattern', async (wf) => {
+  let result: RunResult;
+  let attempts = 0;
+
+  do {
+    attempts++;
+
+    result = await wf.stage(`attempt ${attempts}`, {
+      prompt: '/validate-and-fix'
+    });
+
+    // Check condition
+    const isValid = !result.logs.some(log => log.includes('INVALID'));
+
+    if (isValid) {
+      break;
+    }
+
+    if (attempts >= 5) {
+      throw new Error('Failed to validate after 5 attempts');
+    }
+  } while (true);
+
+  console.log(`Validated successfully after ${attempts} attempts`);
+});
+```
+
+---
+
+## Best Practices
+
+### 1. Set Reasonable Max Iterations
+
+Always set a maximum iteration count to prevent infinite loops:
+
+```typescript
+// ✅ Good: Bounded iterations
+await wf.until(predicate, body, { maxIterations: 10 });
+
+// ❌ Bad: Could loop forever (defaults to 10, but be explicit)
+await wf.until(predicate, body);
+```
+
+### 2. Check Loop Exit Conditions
+
+Verify whether the loop succeeded or hit max iterations:
+
+```typescript
+const results = await wf.until(predicate, body, { maxIterations: 5 });
+
+// Check if we succeeded or ran out of attempts
+const lastResult = results[results.length - 1];
+const succeeded = predicate(lastResult);
+
+if (!succeeded) {
+  console.error('Loop failed to converge after max iterations');
+}
+```
+
+### 3. Use Meaningful Predicates
+
+Write clear, self-documenting predicates:
+
+```typescript
+// ✅ Good: Clear intent
+const allTestsPass = (latest: RunResult) => {
+  return latest.tools.filter('Bash')
+    .filter(t => t.input?.includes('test'))
+    .every(t => t.result?.includes('PASS'));
+};
+
+await wf.until(allTestsPass, body);
+
+// ❌ Bad: Opaque logic
+await wf.until(
+  (latest) => latest.tools.filter('Bash')[0]?.result?.includes('PASS'),
+  body
+);
+```
+
+### 4. Log Progress
+
+Add logging to track loop progress:
+
+```typescript
+vibeWorkflow('logged loop', async (wf) => {
+  let iteration = 0;
+
+  const results = await wf.until(
+    (latest) => {
+      iteration++;
+      console.log(`Iteration ${iteration}: ${latest.files.stats().total} files changed`);
+
+      const isDone = latest.files.changed().length > 0;
+      if (isDone) {
+        console.log(`✓ Loop completed successfully`);
+      }
+      return isDone;
+    },
+
+    async () => {
+      return await wf.stage(`iteration ${iteration}`, {
+        prompt: '/fix-issues'
+      });
+    },
+
+    { maxIterations: 5 }
+  );
+
+  console.log(`Total iterations: ${results.length}`);
+});
+```
+
+### 5. Handle Loop Failures
+
+Gracefully handle cases where the loop doesn't converge:
+
+```typescript
+vibeWorkflow('safe loop', async (wf) => {
+  const results = await wf.until(
+    (latest) => latest.files.changed().length === 0,
+    async () => await wf.stage('fix', { prompt: '/fix' }),
+    { maxIterations: 3 }
+  );
+
+  const lastResult = results[results.length - 1];
+  const converged = lastResult.files.changed().length === 0;
+
+  if (!converged) {
+    // Log detailed failure info
+    console.error('Failed to converge');
+    console.error('Last result:', {
+      files: lastResult.files.stats(),
+      cost: lastResult.metrics.cost.total,
+      logs: lastResult.logs.slice(-5)  // Last 5 log lines
+    });
+
+    // Optionally throw or continue workflow
+    throw new Error('Loop did not converge after 3 iterations');
+  }
+});
+```
+
+---
+
+## Iteration Tracking
+
+Access all iteration results for analysis:
+
+### Analyze Iteration Metrics
+
+```typescript
+vibeWorkflow('metrics analysis', async (wf) => {
+  const results = await wf.until(
+    (latest) => latest.files.changed().length > 0,
+    async () => await wf.stage('iteration', { prompt: '/fix' }),
+    { maxIterations: 10 }
+  );
+
+  // Analyze each iteration
+  results.forEach((result, i) => {
+    console.log(`Iteration ${i + 1}:`);
+    console.log(`  Files changed: ${result.files.stats().total}`);
+    console.log(`  Tools used: ${result.tools.all().length}`);
+    console.log(`  Cost: $${result.metrics.cost.total.toFixed(4)}`);
+  });
+
+  // Calculate totals
+  const totalCost = results.reduce(
+    (sum, r) => sum + r.metrics.cost.total,
+    0
+  );
+  console.log(`Total cost across all iterations: $${totalCost.toFixed(4)}`);
+});
+```
+
+### Track Convergence Rate
+
+```typescript
+vibeWorkflow('convergence tracking', async (wf) => {
+  const results = await wf.until(
+    (latest) => latest.files.stats().total === 0,
+    async () => await wf.stage('reduce', { prompt: '/minimize' }),
+    { maxIterations: 10 }
+  );
+
+  // Track how file count decreased over time
+  const fileCounts = results.map(r => r.files.stats().total);
+  console.log('File count progression:', fileCounts);
+
+  // Calculate convergence rate
+  const initialCount = fileCounts[0];
+  const finalCount = fileCounts[fileCounts.length - 1];
+  const reductionRate = ((initialCount - finalCount) / initialCount) * 100;
+
+  console.log(`Reduced file count by ${reductionRate.toFixed(1)}%`);
+});
+```
+
+---
+
+## Comparison: until() vs Manual Loops
+
+| Feature | `wf.until()` | Manual Loops |
+|---------|--------------|--------------|
+| **Readability** | ✅ Declarative | ❌ Imperative |
+| **Safety** | ✅ Built-in max iterations | ⚠️ Manual bounds checking |
+| **Results** | ✅ Returns array of all results | ⚠️ Manual collection |
+| **Error Handling** | ⚠️ Manual in predicate | ✅ Full control |
+| **Complexity** | ✅ Simple cases | ✅ Complex cases |
+
+**Use `wf.until()` when:**
+- Simple retry logic
+- Convergence checks
+- Standard iteration patterns
+
+**Use manual loops when:**
+- Complex exit conditions
+- Need fine-grained control
+- Multiple loop variables
+- Non-standard flow control
+
+---
+
+## Common Pitfalls
+
+### 1. Infinite Loops
+
+Always set `maxIterations`:
+
+```typescript
+// ❌ Bad: Could loop forever if predicate never returns true
+await wf.until(
+  (latest) => latest.files.changed().length > 100,  // Might never happen
+  body
+);
+
+// ✅ Good: Bounded by maxIterations
+await wf.until(
+  (latest) => latest.files.changed().length > 100,
+  body,
+  { maxIterations: 20 }
+);
+```
+
+### 2. Ignoring Max Iterations Failure
+
+Check if the loop succeeded:
+
+```typescript
+// ❌ Bad: Assumes loop succeeded
+const results = await wf.until(predicate, body, { maxIterations: 3 });
+console.log('Success!');  // Might not be true
+
+// ✅ Good: Verify success
+const results = await wf.until(predicate, body, { maxIterations: 3 });
+const succeeded = await predicate(results[results.length - 1]);
+
+if (succeeded) {
+  console.log('Success!');
+} else {
+  console.error('Failed after max iterations');
+}
+```
+
+### 3. Expensive Predicates
+
+Keep predicates lightweight:
+
+```typescript
+// ❌ Bad: Expensive file I/O in predicate
+await wf.until(
+  async (latest) => {
+    const file = latest.files.get('config.json');
+    const content = await file?.after?.text();  // Async I/O every check
+    return content?.includes('ready');
+  },
+  body
+);
+
+// ✅ Good: Cache expensive operations
+let cachedCheck: boolean | null = null;
+
+await wf.until(
+  async (latest) => {
+    if (cachedCheck !== null) return cachedCheck;
+
+    const file = latest.files.get('config.json');
+    const content = await file?.after?.text();
+    cachedCheck = content?.includes('ready');
+    return cachedCheck;
+  },
+  body
+);
+```
+
+### 4. Modifying External State
+
+Avoid side effects in predicates:
+
+```typescript
+// ❌ Bad: Side effects in predicate
+let attemptCount = 0;
+await wf.until(
+  (latest) => {
+    attemptCount++;  // Side effect!
+    console.log(`Attempt ${attemptCount}`);  // Side effect!
+    return latest.files.changed().length > 0;
+  },
+  body
+);
+
+// ✅ Good: Pure predicate, log outside
+const results = await wf.until(
+  (latest) => latest.files.changed().length > 0,
+  body
+);
+
+console.log(`Completed in ${results.length} attempts`);
+```
+
+---
+
+## What's Next?
+
+Now that you understand loop patterns, explore:
+
+- **[Error Handling →](/guides/automation/error-handling/)** - Handle errors in loops
+- **[Building Workflows →](/guides/automation/building-workflows/)** - Workflow fundamentals
+- **[Cost Optimization →](/guides/advanced/cost-optimization/)** - Reduce loop costs
+
+Or dive into the API reference:
+
+- **[WorkflowContext.until() →](/api/types/workflow-context/#until)** - Complete API documentation
+- **[RunResult →](/api/types/run-result/)** - Result interface for predicates

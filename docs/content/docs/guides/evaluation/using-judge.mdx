@@ -1,0 +1,738 @@
+---
+title: Using Judge
+description: Evaluate agent outputs with LLM-based judges for quality, correctness, and compliance
+sidebar:
+  order: 1
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers how to use the `judge()` function to evaluate agent outputs with LLM-based judges. You'll learn how to create rubrics, customize judgment criteria, and handle judgment results.
+
+<Aside type="tip">
+  **Prerequisites:** This guide assumes you're familiar with basic testing concepts. If you're new to vibe-check, start with [Your First Test →](/getting-started/first-test/).
+</Aside>
+
+## What is a Judge?
+
+A **judge** is an LLM-based evaluator that assesses agent outputs based on defined criteria. Unlike traditional assertions (which check exact values), judges can evaluate:
+
+- **Quality** - Code quality, documentation completeness, test coverage
+- **Correctness** - Functional correctness, bug fixes, feature implementation
+- **Compliance** - Style guide adherence, security best practices, accessibility
+- **Subjective Criteria** - Readability, maintainability, user experience
+
+Judges are particularly useful when:
+- Exact output is unpredictable
+- Multiple correct solutions exist
+- Evaluation requires semantic understanding
+- Human-like judgment is needed
+
+---
+
+## Basic Usage
+
+The `judge()` function evaluates a `RunResult` against a rubric:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('code quality check', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/refactor src/utils.ts --improve-readability'
+  });
+
+  // Evaluate with a judge
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Code Quality',
+      criteria: [
+        {
+          name: 'readability',
+          description: 'Code is easy to read and understand'
+        },
+        {
+          name: 'naming',
+          description: 'Variables and functions have clear names'
+        }
+      ]
+    }
+  });
+
+  // Check judgment result
+  expect(judgment.passed).toBe(true);
+  expect(judgment.criteria.readability.passed).toBe(true);
+});
+```
+
+---
+
+## Rubric Structure
+
+A rubric defines evaluation criteria. It consists of:
+
+1. **Name** - Identifies the rubric (e.g., "Code Quality", "Security Check")
+2. **Criteria** - Array of evaluation criteria (minimum 1)
+3. **Pass Threshold** - Optional overall score threshold (default: 0.7)
+4. **Model** - Optional model override (default: uses workflow default)
+
+```typescript
+const rubric = {
+  name: 'Code Quality',
+  criteria: [
+    {
+      name: 'correctness',
+      description: 'Code works as intended',
+      weight: 0.5,        // Optional: importance (0-1)
+      threshold: 0.6      // Optional: minimum score to pass (0-1)
+    },
+    {
+      name: 'style',
+      description: 'Follows style guide',
+      weight: 0.3
+    },
+    {
+      name: 'testing',
+      description: 'Has adequate test coverage',
+      weight: 0.2
+    }
+  ],
+  passThreshold: 0.75,  // Optional: overall pass threshold
+  model: 'claude-opus-4-20250514'  // Optional: model override
+};
+```
+
+### Criterion Fields
+
+Each criterion has:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | ✅ | Unique identifier for the criterion |
+| `description` | ✅ | What this criterion evaluates |
+| `weight` | ❌ | Importance (0-1, default: equal weighting) |
+| `threshold` | ❌ | Minimum score to pass (0-1, default: 0.5) |
+
+---
+
+## Default Judgment Result
+
+When you don't provide a custom `resultFormat`, `judge()` returns a `DefaultJudgmentResult`:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Quality Check',
+    criteria: [
+      { name: 'correctness', description: 'Works correctly' },
+      { name: 'performance', description: 'Runs efficiently' }
+    ]
+  }
+});
+
+// DefaultJudgmentResult structure:
+judgment.passed          // boolean - overall pass/fail
+judgment.score           // number? - overall score (0-1)
+judgment.criteria        // per-criterion results
+judgment.criteria.correctness.passed   // boolean
+judgment.criteria.correctness.reason   // string
+judgment.feedback        // string? - overall feedback
+```
+
+### Example with Assertions
+
+```typescript
+vibeTest('comprehensive evaluation', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement user authentication'
+  });
+
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Authentication Implementation',
+      criteria: [
+        { name: 'security', description: 'Follows security best practices', weight: 0.5 },
+        { name: 'functionality', description: 'All features work correctly', weight: 0.3 },
+        { name: 'testing', description: 'Has comprehensive tests', weight: 0.2 }
+      ],
+      passThreshold: 0.8
+    }
+  });
+
+  // Assert overall judgment
+  expect(judgment.passed).toBe(true);
+
+  // Assert individual criteria
+  expect(judgment.criteria.security.passed).toBe(true);
+  expect(judgment.criteria.functionality.passed).toBe(true);
+
+  // Log feedback for debugging
+  console.log('Security:', judgment.criteria.security.reason);
+  console.log('Overall feedback:', judgment.feedback);
+});
+```
+
+---
+
+## Custom Judgment Results
+
+For more control over judgment structure, provide a custom `resultFormat` using Zod schemas:
+
+```typescript
+import { z } from 'zod';
+
+// Define custom judgment schema
+const SecurityJudgmentSchema = z.object({
+  overallRisk: z.enum(['low', 'medium', 'high']),
+  vulnerabilities: z.array(z.object({
+    type: z.string(),
+    severity: z.enum(['low', 'medium', 'high', 'critical']),
+    description: z.string(),
+    location: z.string()
+  })),
+  recommendation: z.string(),
+  passed: z.boolean()
+});
+
+type SecurityJudgment = z.infer<typeof SecurityJudgmentSchema>;
+
+// Use custom type with judge()
+vibeTest('security audit', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/add payment processing'
+  });
+
+  const judgment = await judge<SecurityJudgment>(result, {
+    rubric: {
+      name: 'Security Audit',
+      criteria: [
+        { name: 'input_validation', description: 'Validates all user inputs' },
+        { name: 'authentication', description: 'Proper authentication checks' },
+        { name: 'data_handling', description: 'Securely handles sensitive data' }
+      ]
+    },
+    resultFormat: SecurityJudgmentSchema,
+    instructions: 'Focus on payment security and PCI compliance'
+  });
+
+  // Type-safe access to custom fields
+  expect(judgment.passed).toBe(true);
+  expect(judgment.overallRisk).toBe('low');
+
+  judgment.vulnerabilities.forEach(vuln => {
+    if (vuln.severity === 'critical') {
+      throw new Error(`Critical vulnerability: ${vuln.description}`);
+    }
+  });
+});
+```
+
+<Aside type="note">
+  Custom `resultFormat` schemas must include a `passed: boolean` field for compatibility with the `toPassRubric()` matcher.
+</Aside>
+
+---
+
+## Judge Configuration
+
+### Instructions
+
+Provide additional context or requirements to the judge:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'API Design',
+    criteria: [
+      { name: 'rest_principles', description: 'Follows REST principles' },
+      { name: 'consistency', description: 'Consistent naming and structure' }
+    ]
+  },
+  instructions: `
+    Evaluate against these specific requirements:
+    - Use JSON for all responses
+    - Support pagination for list endpoints
+    - Include proper error codes (4xx, 5xx)
+    - Follow company naming conventions (camelCase for JSON keys)
+  `
+});
+```
+
+### Model Selection
+
+Override the default model for judging:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Complex Evaluation',
+    criteria: [
+      { name: 'architecture', description: 'Sound architectural decisions' }
+    ],
+    model: 'claude-opus-4-20250514'  // Use more capable model
+  }
+});
+```
+
+### Throw on Failure
+
+Automatically throw an error if judgment fails:
+
+```typescript
+try {
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Quality Gate',
+      criteria: [
+        { name: 'production_ready', description: 'Ready for production deployment' }
+      ]
+    },
+    throwOnFail: true  // Throw error if judgment.passed === false
+  });
+
+  console.log('Quality gate passed!');
+} catch (error) {
+  console.error('Quality gate failed:', error.message);
+  // Test will fail automatically
+}
+```
+
+---
+
+## Common Rubric Patterns
+
+### Code Quality Rubric
+
+```typescript
+const codeQualityRubric = {
+  name: 'Code Quality',
+  criteria: [
+    {
+      name: 'readability',
+      description: 'Code is easy to read and understand',
+      weight: 0.3
+    },
+    {
+      name: 'maintainability',
+      description: 'Code is easy to modify and extend',
+      weight: 0.3
+    },
+    {
+      name: 'complexity',
+      description: 'Code has appropriate complexity (not over-engineered)',
+      weight: 0.2
+    },
+    {
+      name: 'documentation',
+      description: 'Code has clear comments and JSDoc',
+      weight: 0.2
+    }
+  ],
+  passThreshold: 0.75
+};
+```
+
+### Security Rubric
+
+```typescript
+const securityRubric = {
+  name: 'Security Review',
+  criteria: [
+    {
+      name: 'input_validation',
+      description: 'All user inputs are validated and sanitized',
+      weight: 0.4,
+      threshold: 0.9  // High threshold for critical criterion
+    },
+    {
+      name: 'authentication',
+      description: 'Proper authentication and authorization checks',
+      weight: 0.3,
+      threshold: 0.9
+    },
+    {
+      name: 'data_exposure',
+      description: 'No sensitive data exposed in logs or errors',
+      weight: 0.2,
+      threshold: 0.8
+    },
+    {
+      name: 'dependencies',
+      description: 'No known vulnerabilities in dependencies',
+      weight: 0.1
+    }
+  ],
+  passThreshold: 0.85
+};
+```
+
+### Feature Completeness Rubric
+
+```typescript
+const featureCompletenessRubric = {
+  name: 'Feature Completeness',
+  criteria: [
+    {
+      name: 'requirements',
+      description: 'All specified requirements are implemented',
+      weight: 0.5
+    },
+    {
+      name: 'edge_cases',
+      description: 'Edge cases are handled correctly',
+      weight: 0.3
+    },
+    {
+      name: 'error_handling',
+      description: 'Errors are caught and handled gracefully',
+      weight: 0.2
+    }
+  ]
+};
+```
+
+### Accessibility Rubric
+
+```typescript
+const a11yRubric = {
+  name: 'Accessibility',
+  criteria: [
+    {
+      name: 'semantic_html',
+      description: 'Uses semantic HTML elements correctly',
+      weight: 0.3
+    },
+    {
+      name: 'aria_attributes',
+      description: 'ARIA attributes are used appropriately',
+      weight: 0.3
+    },
+    {
+      name: 'keyboard_navigation',
+      description: 'All interactive elements are keyboard accessible',
+      weight: 0.2
+    },
+    {
+      name: 'screen_reader',
+      description: 'Content is accessible to screen readers',
+      weight: 0.2
+    }
+  ],
+  passThreshold: 0.9  // High standard for accessibility
+};
+```
+
+---
+
+## Advanced Usage
+
+### Multi-Pass Judging
+
+Evaluate different aspects separately:
+
+```typescript
+vibeTest('comprehensive review', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement shopping cart feature'
+  });
+
+  // Pass 1: Functionality
+  const functionalityJudgment = await judge(result, {
+    rubric: {
+      name: 'Functionality',
+      criteria: [
+        { name: 'features', description: 'All features work correctly' }
+      ]
+    }
+  });
+
+  // Pass 2: Security
+  const securityJudgment = await judge(result, {
+    rubric: securityRubric,
+    instructions: 'Focus on payment security and data protection'
+  });
+
+  // Pass 3: Performance
+  const performanceJudgment = await judge(result, {
+    rubric: {
+      name: 'Performance',
+      criteria: [
+        { name: 'efficiency', description: 'Efficient algorithms and queries' }
+      ]
+    }
+  });
+
+  // All must pass
+  expect(functionalityJudgment.passed).toBe(true);
+  expect(securityJudgment.passed).toBe(true);
+  expect(performanceJudgment.passed).toBe(true);
+});
+```
+
+### Contextual Evaluation
+
+Include file contents in judgment:
+
+```typescript
+vibeTest('contextual evaluation', async ({ runAgent, judge, expect }) => {
+  const result = await runAgent({
+    prompt: '/add authentication middleware'
+  });
+
+  // Get implementation file
+  const middlewareFile = result.files.get('src/middleware/auth.ts');
+  const middlewareContent = await middlewareFile?.after?.text();
+
+  // Include in instructions for context
+  const judgment = await judge(result, {
+    rubric: {
+      name: 'Middleware Implementation',
+      criteria: [
+        { name: 'correctness', description: 'Correctly implements auth checks' }
+      ]
+    },
+    instructions: `
+      Evaluate this middleware implementation:
+
+      \`\`\`typescript
+      ${middlewareContent}
+      \`\`\`
+
+      Check for:
+      - Proper token validation
+      - Correct error handling
+      - Type safety
+    `
+  });
+
+  expect(judgment.passed).toBe(true);
+});
+```
+
+### Weighted Criteria
+
+Use weights to prioritize important criteria:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Production Readiness',
+    criteria: [
+      {
+        name: 'correctness',
+        description: 'Code works correctly',
+        weight: 0.5  // 50% of final score
+      },
+      {
+        name: 'performance',
+        description: 'Code performs efficiently',
+        weight: 0.3  // 30% of final score
+      },
+      {
+        name: 'style',
+        description: 'Code follows style guide',
+        weight: 0.2  // 20% of final score
+      }
+    ]
+  }
+});
+```
+
+---
+
+## Using the toPassRubric Matcher
+
+The `toPassRubric()` matcher provides a shorthand for judging and asserting:
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('quality gate with matcher', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement feature'
+  });
+
+  // Shorthand: judge and assert in one call
+  await expect(result).toPassRubric({
+    name: 'Quality Gate',
+    criteria: [
+      { name: 'correctness', description: 'Works correctly' },
+      { name: 'testing', description: 'Has tests' }
+    ]
+  });
+});
+```
+
+<Aside type="note">
+  `toPassRubric()` internally calls `judge()` and asserts `judgment.passed === true`. See [Custom Matchers →](/guides/testing/custom-matchers/) for more details.
+</Aside>
+
+---
+
+## Best Practices
+
+### 1. Write Clear Criteria Descriptions
+
+The LLM judge relies on clear, unambiguous criteria:
+
+```typescript
+// ✅ Good: Clear, specific descriptions
+criteria: [
+  {
+    name: 'input_validation',
+    description: 'All user inputs are validated using Zod schemas before processing'
+  },
+  {
+    name: 'error_handling',
+    description: 'All async operations have try-catch blocks and return meaningful error messages'
+  }
+]
+
+// ❌ Bad: Vague descriptions
+criteria: [
+  { name: 'quality', description: 'Good quality' },
+  { name: 'errors', description: 'Handles errors' }
+]
+```
+
+### 2. Set Appropriate Thresholds
+
+Critical criteria should have high thresholds:
+
+```typescript
+criteria: [
+  {
+    name: 'security',
+    description: 'No security vulnerabilities',
+    threshold: 0.9  // ✅ High threshold for critical criterion
+  },
+  {
+    name: 'naming',
+    description: 'Variables have descriptive names',
+    threshold: 0.6  // ✅ Lower threshold for style criterion
+  }
+]
+```
+
+### 3. Use Instructions for Context
+
+Provide additional context through instructions:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: apiDesignRubric,
+  instructions: `
+    This is an internal API used by our mobile app.
+    Consider these requirements:
+    - Must support offline sync
+    - Response time < 200ms
+    - Backward compatibility with v1.x clients
+  `
+});
+```
+
+### 4. Handle Judgment Failures
+
+Always handle cases where judgment fails:
+
+```typescript
+const judgment = await judge(result, { rubric });
+
+if (!judgment.passed) {
+  console.error('Judgment failed:');
+  console.error('Overall feedback:', judgment.feedback);
+
+  // Log each failed criterion
+  Object.entries(judgment.criteria).forEach(([name, result]) => {
+    if (!result.passed) {
+      console.error(`  ${name}: ${result.reason}`);
+    }
+  });
+
+  // Fail the test with detailed message
+  throw new Error(
+    `Quality gate failed. Score: ${judgment.score}. Feedback: ${judgment.feedback}`
+  );
+}
+```
+
+### 5. Consider Judge Costs
+
+Judges use LLM calls, which cost money and tokens:
+
+```typescript
+// ✅ Good: Judge only on important criteria
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Critical Checks',
+    criteria: [
+      { name: 'security', description: 'No security issues' },
+      { name: 'functionality', description: 'Feature works' }
+    ]
+  }
+});
+
+// ❌ Bad: Over-using judges for simple checks
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Trivial Checks',
+    criteria: [
+      { name: 'has_files', description: 'Agent changed files' }
+      // This could be checked with: result.files.changed().length > 0
+    ]
+  }
+});
+```
+
+---
+
+## Debugging Judgments
+
+### Log Judgment Details
+
+```typescript
+const judgment = await judge(result, { rubric });
+
+console.log('Judgment:', {
+  passed: judgment.passed,
+  score: judgment.score,
+  feedback: judgment.feedback,
+  criteria: Object.fromEntries(
+    Object.entries(judgment.criteria).map(([name, result]) => [
+      name,
+      { passed: result.passed, reason: result.reason }
+    ])
+  )
+});
+```
+
+### Investigate Failed Criteria
+
+```typescript
+if (!judgment.passed) {
+  const failedCriteria = Object.entries(judgment.criteria)
+    .filter(([_, result]) => !result.passed);
+
+  console.log(`Failed ${failedCriteria.length} criteria:`);
+
+  for (const [name, result] of failedCriteria) {
+    console.log(`\n${name}:`);
+    console.log(`  Reason: ${result.reason}`);
+  }
+}
+```
+
+---
+
+## What's Next?
+
+Now that you understand judges, explore:
+
+- **[Rubrics →](/guides/evaluation/rubrics/)** - Learn rubric design best practices
+- **[Benchmarking →](/guides/evaluation/benchmarking/)** - Compare models with judges
+- **[Custom Matchers →](/guides/testing/custom-matchers/)** - Use `toPassRubric()` matcher
+
+Or dive into the API reference:
+
+- **[judge() API →](/api/core/judge/)** - Complete API documentation
+- **[Rubric Interface →](/api/types/rubric/)** - Rubric type definition

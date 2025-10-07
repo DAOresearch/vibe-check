@@ -1,0 +1,159 @@
+---
+title: Advanced Guides
+description: Master advanced vibe-check features including MCP server integration, cost optimization strategies, artifact cleanup policies, and multi-modal prompts with images and files.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Master advanced vibe-check features for production workflows, cost optimization, and multi-modal interactions.
+
+## Available Guides
+
+<CardGrid>
+  <Card title="MCP Servers" icon="seti:config">
+    [Integrate Model Context Protocol servers](/guides/advanced/mcp-servers/) for enhanced agent capabilities.
+  </Card>
+
+  <Card title="Cost Optimization" icon="star">
+    [Reduce costs while maintaining quality](/guides/advanced/cost-optimization/) through strategic optimizations.
+  </Card>
+
+  <Card title="Bundle Cleanup" icon="trash">
+    [Manage artifact storage](/guides/advanced/bundle-cleanup/) and implement cleanup policies.
+  </Card>
+
+  <Card title="Multi-Modal Prompts" icon="document">
+    [Use text, images, and files](/guides/advanced/multi-modal-prompts/) in your agent prompts effectively.
+  </Card>
+</CardGrid>
+
+---
+
+## Overview
+
+Advanced vibe-check usage enables production-scale deployments with sophisticated features:
+
+- **MCP integration** - Extend agent capabilities with external tools
+- **Cost optimization** - Reduce expenses without sacrificing quality
+- **Storage management** - Control disk usage and retention policies
+- **Multi-modal inputs** - Leverage images, files, and mixed content
+
+---
+
+## Guide Details
+
+### [MCP Servers](/guides/advanced/mcp-servers/)
+
+Integrate Model Context Protocol servers to enhance agent capabilities.
+
+**You'll learn:**
+- Configuring MCP servers in agent definitions
+- Available MCP tools and capabilities
+- Managing server lifecycle
+- Context management with MCP
+
+**Use cases:**
+- Database access for agents
+- API integration without custom code
+- File system operations
+- External service integration
+
+**Key concepts:**
+- MCP server configuration
+- Tool discovery and usage
+- Context propagation
+- Error handling
+
+---
+
+### [Cost Optimization](/guides/advanced/cost-optimization/)
+
+Reduce operational costs while maintaining output quality.
+
+**You'll learn:**
+- Token reduction strategies
+- Model selection optimization
+- Prompt engineering for efficiency
+- Caching strategies
+
+**Use cases:**
+- High-volume automation
+- Budget-constrained projects
+- Cost-sensitive benchmarking
+- Production cost control
+
+**Key concepts:**
+- Token counting
+- Model cost comparison
+- Prompt compression
+- Selective caching
+
+---
+
+### [Bundle Cleanup](/guides/advanced/bundle-cleanup/)
+
+Manage artifact storage and implement retention policies.
+
+**You'll learn:**
+- Understanding RunBundle storage
+- Configuring retention policies
+- Manual cleanup strategies
+- Disk usage monitoring
+
+**Use cases:**
+- CI/CD artifact management
+- Long-running test suites
+- Storage cost optimization
+- Compliance requirements
+
+**Key concepts:**
+- 30-day default retention
+- Bundle structure
+- Cleanup triggers
+- Storage location
+
+---
+
+### [Multi-Modal Prompts](/guides/advanced/multi-modal-prompts/)
+
+Use text, images, and files effectively in agent prompts.
+
+**You'll learn:**
+- Including images in prompts
+- Attaching files for context
+- Mixed content formatting
+- File path handling
+
+**Use cases:**
+- Screenshot-based UI changes
+- Diagram-to-code generation
+- Design implementation
+- Visual debugging
+
+**Key concepts:**
+- Image format support
+- File attachment syntax
+- Content-type handling
+- Path resolution
+
+---
+
+## Related Documentation
+
+### Tutorials
+- [Quickstart](/getting-started/quickstart/) - Basic agent execution
+- [Your First Automation](/getting-started/first-automation/) - Workflow basics
+
+### API Reference
+- [defineAgent](/api/core/defineagent/) - Agent configuration
+- [Configuration](/api/types/configuration/) - All configuration options
+- [RunResult](/api/types/run-result/) - Result inspection
+
+### Architecture
+- [Context Manager](/explanation/architecture/context-manager/) - How context is captured
+- [Run Bundle](/explanation/architecture/run-bundle/) - Storage structure
+- [Hook Integration](/explanation/architecture/hook-integration/) - Claude Code hooks
+
+### Other Guides
+- [Automation Guides](/guides/automation/) - Building workflows
+- [Testing Guides](/guides/testing/) - Effective testing patterns

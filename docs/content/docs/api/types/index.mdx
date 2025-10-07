@@ -1,0 +1,269 @@
+---
+title: Types Reference
+description: Complete TypeScript types and interfaces for vibe-check including RunResult, FileChange, ToolCall, Rubric, and all context types for agent testing and automation.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Complete TypeScript interface documentation for all vibe-check types.
+
+## Quick Navigation
+
+<CardGrid>
+  <Card title="Context Types" icon="seti:config">
+    Interfaces for test and workflow contexts
+  </Card>
+
+  <Card title="Result Types" icon="document">
+    Interfaces for agent execution results
+  </Card>
+
+  <Card title="Data Types" icon="seti:json">
+    Interfaces for files, tools, and captured data
+  </Card>
+
+  <Card title="Configuration Types" icon="setting">
+    Types for agent and test configuration
+  </Card>
+</CardGrid>
+
+---
+
+## Context Interfaces
+
+Types for test and workflow execution contexts.
+
+### [VibeTestContext](/api/types/test-context/)
+The fixture context available in `vibeTest` functions.
+
+```typescript
+interface VibeTestContext {
+  runAgent(opts: RunAgentOptions): Promise<RunResult>;
+  judge(result: RunResult, opts: JudgeOptions): Promise<JudgeResult>;
+  expect: typeof import('vitest')['expect'];
+  annotate(message: string, type?: string): Promise<void>;
+  task: Task;
+}
+```
+
+### [WorkflowContext](/api/types/workflow-context/)
+The orchestration context available in `vibeWorkflow` functions.
+
+```typescript
+interface WorkflowContext {
+  stage(name: string, opts: StageOptions): Promise<RunResult>;
+  until(condition: () => boolean | Promise<boolean>, body: () => Promise<void>): Promise<void>;
+  annotate(message: string, type?: string): Promise<void>;
+}
+```
+
+### [AgentExecution](/api/types/agent-execution/)
+Real-time execution monitoring for reactive patterns.
+
+```typescript
+class AgentExecution {
+  watch(callback: (partial: PartialRunResult) => void | Promise<void>): void;
+  await(): Promise<RunResult>;
+}
+```
+
+---
+
+## Result Interfaces
+
+Types for agent execution results and captured data.
+
+### [RunResult](/api/types/run-result/)
+Complete results from an agent run with all captured context.
+
+```typescript
+interface RunResult {
+  files: FileChangeMap;
+  tools: ToolCall[];
+  git: GitState;
+  timeline: TimelineEvent[];
+  metrics: Metrics;
+  // ... see full reference
+}
+```
+
+### [PartialRunResult](/api/types/partial-result/)
+In-progress execution state available during agent runs.
+
+```typescript
+interface PartialRunResult {
+  files: FileChangeMap;
+  tools: ToolCall[];
+  timeline: TimelineEvent[];
+  // ... see full reference
+}
+```
+
+### [FileChange](/api/types/file-change/)
+Details about a single file modification.
+
+```typescript
+interface FileChange {
+  path: string;
+  status: 'added' | 'modified' | 'deleted' | 'renamed';
+  before?: FileSnapshot;
+  after?: FileSnapshot;
+  diff: string;
+}
+```
+
+### [ToolCall](/api/types/tool-call/)
+A correlated tool invocation with inputs and outputs.
+
+```typescript
+interface ToolCall {
+  name: string;
+  inputs: unknown;
+  outputs?: unknown;
+  error?: string;
+  timestamp: number;
+}
+```
+
+---
+
+## Evaluation Types
+
+Types for LLM-based quality evaluation.
+
+### [Rubric & JudgeResult](/api/types/rubric/)
+Schemas for defining evaluation criteria and receiving judge results.
+
+```typescript
+interface Rubric {
+  criteria: Criterion[];
+  model?: string;
+}
+
+interface JudgeResult {
+  passed: boolean;
+  score: number;
+  criteriaResults: CriterionResult[];
+  reasoning: string;
+}
+```
+
+---
+
+## Configuration Types
+
+Types for configuring agents, tests, and the framework.
+
+### [Configuration](/api/types/configuration/)
+All configuration options for agents, tests, and global defaults.
+
+```typescript
+interface AgentConfig {
+  name: string;
+  model: string;
+  maxTurns?: number;
+  hooks?: HookConfig;
+  mcpServers?: McpServerConfig[];
+}
+
+interface VibeConfig {
+  reporters?: ('cost' | 'html')[];
+  defaults?: AgentDefaults;
+  htmlReport?: HtmlReportConfig;
+}
+```
+
+---
+
+## Assertion Types
+
+Types for custom matchers and assertions.
+
+### [Matchers](/api/types/matchers/)
+All available custom matchers with their signatures.
+
+```typescript
+interface CustomMatchers<R = unknown> {
+  toHaveChangedFiles(paths: string[]): R;
+  toHaveNoDeletedFiles(): R;
+  toHaveUsedTool(name: string, opts?: { min?: number }): R;
+  toUseOnlyTools(allowlist: string[]): R;
+  toCompleteAllTodos(): R;
+  toPassRubric(rubric: Rubric): Promise<R>;
+  toStayUnderCost(maxUsd: number): R;
+}
+```
+
+---
+
+## Type Relationships
+
+### Data Flow
+```
+vibeTest
+  ├─> VibeTestContext (fixtures)
+  │    ├─> runAgent() returns RunResult
+  │    └─> judge() returns JudgeResult
+  │
+  └─> Custom Matchers operate on RunResult
+
+vibeWorkflow
+  ├─> WorkflowContext (orchestration)
+  │    └─> stage() returns RunResult
+  │
+  └─> Cumulative context across stages
+
+RunResult contains:
+  ├─> FileChangeMap (files)
+  ├─> ToolCall[] (tools)
+  ├─> GitState (git)
+  ├─> TimelineEvent[] (timeline)
+  └─> Metrics (metrics)
+```
+
+---
+
+## Import Paths
+
+```typescript
+// Core types
+import type {
+  VibeTestContext,
+  WorkflowContext,
+  AgentExecution,
+  RunResult,
+  PartialRunResult
+} from '@dao/vibe-check';
+
+// Data types
+import type {
+  FileChange,
+  ToolCall,
+  GitState,
+  TimelineEvent,
+  Metrics
+} from '@dao/vibe-check';
+
+// Evaluation types
+import type {
+  Rubric,
+  Criterion,
+  JudgeResult
+} from '@dao/vibe-check';
+
+// Configuration types
+import type {
+  AgentConfig,
+  VibeConfig,
+  RunAgentOptions
+} from '@dao/vibe-check';
+```
+
+---
+
+## Related Documentation
+
+- **[Core APIs](/api/)** - Functions that use these types
+- **[Utilities](/api/utilities/)** - Configuration helpers
+- **[Getting Started](/getting-started/)** - Tutorials with examples
+- **[Concepts](/explanation/concepts/dual-api/)** - Design rationale for types

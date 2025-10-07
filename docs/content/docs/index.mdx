@@ -1,121 +1,200 @@
 ---
 title: Vibe Check
-description: Automation and Evaluation framework for Claude Code agents, built on Vitest v3
+description: Test and automate Claude Code agents with vibe-check. Built on Vitest v3 with auto-capture, LLM judges, matrix testing, and production-ready workflows for AI agent development.
 template: splash
-head:
-  - tag: meta
-    attrs:
-      property: og:image
-      content: https://daoresearch.github.io/vibe-check/og-images/homepage.png
-  - tag: meta
-    attrs:
-      property: og:image:width
-      content: "1200"
-  - tag: meta
-    attrs:
-      property: og:image:height
-      content: "630"
-  - tag: meta
-    attrs:
-      name: twitter:card
-      content: summary_large_image
-  - tag: meta
-    attrs:
-      name: twitter:image
-      content: https://daoresearch.github.io/vibe-check/og-images/homepage.png
 hero:
-  tagline: Complete documentation for the automation and evaluation platform for Claude Code
+  title: Vibe Check
+  tagline: Automation and Evaluation framework for Claude Code agents, built on Vitest v3
+  image:
+    file: ../../public/logo.png
+    alt: "Vibe Check logo - automation and evaluation framework for Claude Code agents"
   actions:
     - text: Get Started
-      link: /getting-started/introduction/
+      link: /getting-started/installation/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
       link: https://github.com/DAOresearch/vibe-check
       icon: external
+      variant: minimal
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Quick Navigation
-
-<CardGrid stagger>
-  <Card title="🚀 Getting Started" icon="rocket">
-    Tutorials and quick start guides to begin building with Vibe Check
-
-    [Start here →](/getting-started/introduction/)
-  </Card>
-
-  <Card title="📖 Guides" icon="open-book">
-    How-to guides for common tasks and workflows
-
-    [Browse guides →](/guides/)
-  </Card>
-
-  <Card title="🧪 Recipes" icon="seti:test-jsx">
-    Copy-paste patterns and working examples
-
-    [View recipes →](/recipes/)
-  </Card>
-
-  <Card title="📚 API Reference" icon="document">
-    Complete API documentation
-
-    [API docs →](/api/)
-  </Card>
-</CardGrid>
-
 ## What is Vibe Check?
 
-Vibe Check is a **dual-purpose platform** built on Vitest:
+**Vibe Check** (`@dao/vibe-check`) is a dual-purpose TypeScript testing framework that enables you to:
 
-### 1. Automation Suite
-- Run multi-step agent pipelines
-- Orchestrate multiple agents with different tools
-- Capture artifacts, metrics, and transcripts
-- Get production-grade reporting on every run
+1. **Test & Evaluate** - Benchmark models, validate agent behavior, and enforce quality gates
+2. **Automate Workflows** - Build multi-agent pipelines that orchestrate complex tasks
 
-### 2. Evaluation Framework
-- Benchmark models, prompts, tools, and MCP servers
-- Matrix test every configuration in parallel
-- Track costs, tokens, duration, and quality
-- Enforce quality gates with custom matchers and LLM judges
-
-**Killer feature:** Production-grade **rich terminal + HTML reports** with costs, tokens, timelines, transcripts, todos, and artifacts—on every run.
-
-## Documentation by Use Case
-
-### I want to automate agent workflows
-
-Build multi-step pipelines, orchestrate agents, and capture artifacts:
-
-1. [First Automation Tutorial](/getting-started/first-automation/) - Build your first pipeline
-2. [Building Pipelines](/guides/automation/pipelines/) - Chain agents and pass artifacts
-3. [Multi-Agent Orchestration](/guides/automation/orchestration/) - Coordinate multiple agents
-
-### I want to evaluate and benchmark agents
-
-Compare models, track costs, and enforce quality gates:
-
-1. [First Evaluation Tutorial](/getting-started/first-evaluation/) - Benchmark your first agent
-2. [Model Benchmarking](/guides/evaluation/benchmarking/) - Compare model performance
-3. [Matrix Testing](/guides/evaluation/matrix-testing/) - Test multiple configurations
-
-### I want to look up API details
-
-Complete TypeScript reference with examples:
-
-- [vibeTest](/api/vibetest/) - Test function with fixtures
-- [runAgent](/api/runagent/) - Execute agents
-- [Custom Matchers](/api/matchers/) - Quality assertions
-- [TypeScript Types](/api/types/) - Complete type reference
-
-## Getting Help
-
-- **Bug reports**: [GitHub Issues](https://github.com/DAOresearch/vibe-check/issues)
-- **Feature requests**: [GitHub Discussions](https://github.com/DAOresearch/vibe-check/discussions)
-- **Questions**: Check [Guides](/guides/) first, then open a discussion
+Built on **Vitest v3**, vibe-check provides a simple, powerful API while automatically capturing execution context—git state, file changes, tool calls, and more.
 
 ---
 
-Built with ❤️ for developers who measure twice and ship once.
+## Choose Your Path
+
+<CardGrid>
+  <Card title="Test & Evaluate Agents" icon="approve-check">
+    Write tests to validate agent behavior, benchmark different models, and enforce quality standards.
+
+    [Start with Testing →](/getting-started/first-test/)
+  </Card>
+
+  <Card title="Automate Workflows" icon="rocket">
+    Build multi-stage pipelines that chain agents together to accomplish complex automation tasks.
+
+    [Start with Automation →](/getting-started/first-automation/)
+  </Card>
+
+  <Card title="Benchmark & Compare" icon="bars">
+    Use matrix testing and LLM-based judges to compare models, prompts, and configurations.
+
+    [Start with Evaluation →](/getting-started/first-evaluation/)
+  </Card>
+
+  <Card title="Explore the API" icon="open-book">
+    Dive into the complete API reference to discover all available features and types.
+
+    [Browse API Reference →](/api/core/vibetest/)
+  </Card>
+</CardGrid>
+
+---
+
+## Quick Example
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('agent can refactor code', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/refactor src/auth.ts --add-tests'
+  });
+
+  // Automatic context capture
+  expect(result).toCompleteAllTodos();
+  expect(result).toHaveChangedFiles(['src/auth.ts', 'src/auth.test.ts']);
+  expect(result).toStayUnderCost(2.00);
+});
+```
+
+---
+
+## Key Features
+
+### 🎯 Dual API Design
+
+- **`vibeTest`** - For testing and evaluation with assertions
+- **`vibeWorkflow`** - For multi-stage automation pipelines
+
+Both share the same primitives (`runAgent`, `defineAgent`, `judge`) but optimize for different use cases.
+
+### 📸 Auto-Captured Context
+
+When you run an agent, vibe-check automatically captures:
+
+- Git state (commits, branches, diffs)
+- File changes (before/after content)
+- Tool calls (correlated from hooks)
+- Timeline events (TODOs, notifications)
+- Metrics (cost, tokens, duration)
+
+No manual artifact management required.
+
+### ⚡ Reactive Watchers
+
+Fail fast with assertions that run **during** agent execution:
+
+```typescript
+const execution = runAgent({ prompt: '/refactor' });
+
+execution.watch(({ files }) => {
+  expect(files.changed()).not.toContain('database/');
+});
+
+await execution; // Aborts if database files touched
+```
+
+### 🧪 LLM-Based Evaluation
+
+Use Claude as a judge to evaluate code quality:
+
+```typescript
+const judgment = await judge(result, {
+  rubric: {
+    name: 'Code Quality',
+    criteria: [
+      { name: 'has_tests', description: 'Added comprehensive test coverage' },
+      { name: 'no_todos', description: 'No TODO comments left behind' }
+    ]
+  }
+});
+
+expect(judgment.passed).toBe(true);
+```
+
+### 📊 Rich Reporting
+
+- **Terminal Reporter** - Real-time cost tracking and summaries
+- **HTML Reporter** - Interactive reports with transcripts, timelines, and diffs
+- **Custom Matchers** - Domain-specific assertions for agent behavior
+
+### 🔄 Matrix Testing
+
+Compare models, prompts, and configurations with Cartesian product generation:
+
+```typescript
+defineTestSuite({
+  matrix: {
+    model: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'],
+    maxTurns: [5, 10]
+  },
+  test: ({ model, maxTurns }) => {
+    vibeTest(`${model} in ${maxTurns} turns`, async ({ runAgent }) => {
+      // Test runs 4 times (2 models × 2 maxTurns)
+    });
+  }
+});
+```
+
+---
+
+## Why Vibe Check?
+
+- **Vitest-native** - No custom test runners; pure Vitest infrastructure
+- **DX-first** - Simple user-facing API hiding Vitest complexity
+- **Type-safe** - Full TypeScript support with strict typing
+- **Production-ready** - Built for both testing and automation
+- **Well-documented** - Comprehensive guides following Diátaxis framework
+
+---
+
+## Ready to Start?
+
+<CardGrid stagger>
+  <Card title="Installation" icon="rocket">
+    Install vibe-check and configure your first project.
+
+    [Install Now →](/getting-started/installation/)
+  </Card>
+
+  <Card title="5-Minute Quickstart" icon="laptop">
+    Write your first test in under 5 minutes.
+
+    [Quickstart →](/getting-started/quickstart/)
+  </Card>
+</CardGrid>
+
+---
+
+## Documentation Structure
+
+This documentation follows the [Diátaxis framework](https://diataxis.fr/):
+
+- **Tutorials** ([Getting Started](/getting-started/installation/)) - Step-by-step learning paths
+- **How-To Guides** ([Guides](/guides/)) - Task-oriented recipes for specific problems
+- **Reference** ([API Reference](/api/)) - Dry, factual technical documentation
+- **Explanation** ([Explanation](/explanation/)) - Conceptual deep-dives and design decisions
+
+Can't find what you're looking for? Use the search bar above or [open an issue](https://github.com/DAOresearch/vibe-check/issues).

@@ -1,0 +1,595 @@
+---
+title: FileChange
+description: File change record with lazy-loaded content and git diff access
+sidebar:
+  order: 6
+---
+
+`FileChange` represents a single file change captured during agent execution. It provides lazy-loaded access to file content (before and after) and git diffs.
+
+## Interface
+
+```typescript
+interface FileChange {
+  path: string;
+  type: 'added' | 'modified' | 'deleted' | 'renamed';
+  before?: FileSnapshot;
+  after?: FileSnapshot;
+  diff?: string;
+  oldPath?: string;
+}
+```
+
+## Properties
+
+### path
+
+```typescript
+path: string
+```
+
+Relative path to the file from the workspace root.
+
+**Example:**
+
+```typescript
+const file = result.files.get('src/index.ts');
+console.log('File path:', file?.path);
+// Output: "src/index.ts"
+```
+
+---
+
+### type
+
+```typescript
+type: 'added' | 'modified' | 'deleted' | 'renamed'
+```
+
+Type of change applied to the file.
+
+**Values:**
+- `'added'` - New file created
+- `'modified'` - Existing file changed
+- `'deleted'` - File removed
+- `'renamed'` - File moved/renamed
+
+**Example - Filter by Type:**
+
+```typescript
+const result = await runAgent({ prompt: '/refactor' });
+
+const added = result.files.changed().filter(f => f.type === 'added');
+const modified = result.files.changed().filter(f => f.type === 'modified');
+const deleted = result.files.changed().filter(f => f.type === 'deleted');
+
+console.log(`Added: ${added.length}`);
+console.log(`Modified: ${modified.length}`);
+console.log(`Deleted: ${deleted.length}`);
+```
+
+**Example - Assert No Deletions:**
+
+```typescript
+vibeTest('no deletions', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/refactor' });
+
+  const deleted = result.files.changed().filter(f => f.type === 'deleted');
+  expect(deleted).toHaveLength(0);
+});
+```
+
+---
+
+### before
+
+```typescript
+before?: FileSnapshot
+```
+
+Snapshot of the file before the change (undefined for added files).
+
+**FileSnapshot Interface:**
+
+```typescript
+interface FileSnapshot {
+  text(): Promise<string>;
+  exists: boolean;
+}
+```
+
+**Methods:**
+
+#### `text()`
+Lazily load the file content as a string.
+
+```typescript
+const file = result.files.get('src/index.ts');
+
+if (file?.before) {
+  const beforeContent = await file.before.text();
+  console.log('Original content:', beforeContent);
+}
+```
+
+**Lazy Loading:**
+- Content is not loaded until `text()` is called
+- First call loads from disk and caches
+- Subsequent calls return cached value
+- Efficient for large files and many changes
+
+**Example - Compare Before/After:**
+
+```typescript
+const file = result.files.get('src/config.ts');
+
+if (file?.before && file?.after) {
+  const before = await file.before.text();
+  const after = await file.after.text();
+
+  console.log('Before:', before.length, 'chars');
+  console.log('After:', after.length, 'chars');
+  console.log('Changed:', before !== after);
+}
+```
+
+**Availability:**
+- `undefined` for `type: 'added'` files (no previous content)
+- Always defined for `type: 'modified'` and `type: 'deleted'`
+
+---
+
+### after
+
+```typescript
+after?: FileSnapshot
+```
+
+Snapshot of the file after the change (undefined for deleted files).
+
+**Example - Read New Content:**
+
+```typescript
+const file = result.files.get('src/utils.ts');
+
+if (file?.after) {
+  const content = await file.after.text();
+
+  // Analyze new content
+  const lines = content.split('\n');
+  const exports = lines.filter(l => l.startsWith('export'));
+
+  console.log(`New file has ${lines.length} lines`);
+  console.log(`Exports ${exports.length} items`);
+}
+```
+
+**Availability:**
+- `undefined` for `type: 'deleted'` files (no new content)
+- Always defined for `type: 'added'` and `type: 'modified'`
+
+**Example - Validate Generated Code:**
+
+```typescript
+vibeTest('validate code generation', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement user authentication'
+  });
+
+  const authFile = result.files.get('src/auth/login.ts');
+  expect(authFile).toBeDefined();
+
+  const content = await authFile?.after?.text();
+  expect(content).toContain('async function login');
+  expect(content).toContain('try {');
+  expect(content).toContain('} catch');
+});
+```
+
+---
+
+### diff
+
+```typescript
+diff?: string
+```
+
+Git diff string for the file (if available).
+
+**Format:** Standard unified diff format
+
+**Example:**
+
+```typescript
+const file = result.files.get('src/index.ts');
+
+if (file?.diff) {
+  console.log('Git diff:');
+  console.log(file.diff);
+}
+```
+
+**Output:**
+```diff
+diff --git a/src/index.ts b/src/index.ts
+index 1234567..abcdefg 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,5 +1,7 @@
+ import { config } from './config';
++import { authenticate } from './auth';
+
+ export async function main() {
++  await authenticate();
+   await config.load();
+ }
+```
+
+**Example - Analyze Diff:**
+
+```typescript
+const file = result.files.get('package.json');
+
+if (file?.diff) {
+  const addedLines = file.diff.split('\n').filter(l => l.startsWith('+'));
+  const removedLines = file.diff.split('\n').filter(l => l.startsWith('-'));
+
+  console.log(`Added ${addedLines.length} lines`);
+  console.log(`Removed ${removedLines.length} lines`);
+}
+```
+
+**Availability:**
+- Available in `RunResult` (after execution completes)
+- Not available in `PartialRunResult` (during execution)
+
+---
+
+### oldPath
+
+```typescript
+oldPath?: string
+```
+
+Original path for renamed files (only present when `type === 'renamed'`).
+
+**Example:**
+
+```typescript
+const renamed = result.files.changed().filter(f => f.type === 'renamed');
+
+renamed.forEach(file => {
+  console.log(`Renamed: ${file.oldPath} → ${file.path}`);
+});
+```
+
+**Example - Track Renames:**
+
+```typescript
+vibeTest('track file renames', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/rename utils to helpers'
+  });
+
+  const renamed = result.files.changed().filter(f => f.type === 'renamed');
+
+  renamed.forEach(file => {
+    if (file.oldPath) {
+      console.log(`${file.oldPath} → ${file.path}`);
+    }
+  });
+
+  expect(renamed.length).toBeGreaterThan(0);
+});
+```
+
+---
+
+## FileSnapshot
+
+The `FileSnapshot` interface provides lazy access to file content:
+
+```typescript
+interface FileSnapshot {
+  text(): Promise<string>;
+  exists: boolean;
+}
+```
+
+### text()
+
+```typescript
+text(): Promise<string>
+```
+
+Asynchronously load the file content.
+
+**Behavior:**
+- First call: Reads from disk and caches
+- Subsequent calls: Returns cached value
+- Throws if file doesn't exist
+
+**Example:**
+
+```typescript
+const file = result.files.get('README.md');
+
+try {
+  const content = await file?.after?.text();
+  console.log('README length:', content?.length);
+} catch (error) {
+  console.error('Failed to load file:', error);
+}
+```
+
+### exists
+
+```typescript
+exists: boolean
+```
+
+Whether the file exists in this snapshot.
+
+**Values:**
+- `true` - File exists and can be read
+- `false` - File doesn't exist (deleted or not created yet)
+
+**Example:**
+
+```typescript
+const file = result.files.get('config.json');
+
+if (file?.before?.exists) {
+  const before = await file.before.text();
+  console.log('Original config:', before);
+}
+
+if (file?.after?.exists) {
+  const after = await file.after.text();
+  console.log('New config:', after);
+}
+```
+
+---
+
+## Usage Patterns
+
+### Basic Content Access
+
+```typescript
+vibeTest('read file content', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/create welcome.txt with "Hello World"'
+  });
+
+  const file = result.files.get('welcome.txt');
+
+  expect(file).toBeDefined();
+  expect(file?.type).toBe('added');
+
+  const content = await file?.after?.text();
+  expect(content).toBe('Hello World');
+});
+```
+
+### Content Comparison
+
+```typescript
+vibeTest('compare before and after', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/update config.json to set debug: true'
+  });
+
+  const config = result.files.get('config.json');
+
+  const before = await config?.before?.text();
+  const after = await config?.after?.text();
+
+  const beforeObj = JSON.parse(before || '{}');
+  const afterObj = JSON.parse(after || '{}');
+
+  expect(beforeObj.debug).toBeUndefined();
+  expect(afterObj.debug).toBe(true);
+});
+```
+
+### Filter and Process
+
+```typescript
+vibeTest('process all TypeScript files', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/add JSDoc comments'
+  });
+
+  const tsFiles = result.files.filter('**/*.ts');
+
+  for (const file of tsFiles) {
+    const content = await file.after?.text();
+
+    if (content) {
+      const hasJsDoc = content.includes('/**');
+      console.log(`${file.path}: ${hasJsDoc ? 'has' : 'missing'} JSDoc`);
+    }
+  }
+});
+```
+
+### Validate File Types
+
+```typescript
+vibeTest('validate changes by type', async ({ runAgent, expect }) => {
+  const result = await runAgent({ prompt: '/refactor' });
+
+  const changes = result.files.changed();
+
+  // Group by type
+  const added = changes.filter(f => f.type === 'added');
+  const modified = changes.filter(f => f.type === 'modified');
+  const deleted = changes.filter(f => f.type === 'deleted');
+
+  console.log(`Added: ${added.map(f => f.path)}`);
+  console.log(`Modified: ${modified.map(f => f.path)}`);
+  console.log(`Deleted: ${deleted.map(f => f.path)}`);
+
+  // Assert expectations
+  expect(added.length).toBeGreaterThan(0);
+  expect(deleted).toHaveLength(0);
+});
+```
+
+### Diff Analysis
+
+```typescript
+vibeTest('analyze git diffs', async ({ runAgent }) => {
+  const result = await runAgent({
+    prompt: '/implement error handling'
+  });
+
+  for (const file of result.files.changed()) {
+    if (file.diff) {
+      const addedCatch = file.diff.includes('+  } catch');
+
+      if (addedCatch) {
+        console.log(`${file.path}: Added error handling`);
+      }
+    }
+  }
+});
+```
+
+---
+
+## Lazy Loading Benefits
+
+File content is lazily loaded to optimize memory and performance:
+
+### Memory Efficiency
+
+```typescript
+const result = await runAgent({ prompt: '/refactor 100 files' });
+
+// No content loaded yet - minimal memory
+console.log('Files changed:', result.files.changed().length);
+
+// Only load content for files we care about
+const indexFile = result.files.get('src/index.ts');
+const content = await indexFile?.after?.text();  // Loads only this file
+```
+
+### Selective Loading
+
+```typescript
+vibeTest('selective loading', async ({ runAgent }) => {
+  const result = await runAgent({ prompt: '/update' });
+
+  const files = result.files.changed();
+
+  // Load only TypeScript files
+  for (const file of files) {
+    if (file.path.endsWith('.ts')) {
+      const content = await file.after?.text();
+      console.log(`Loaded: ${file.path} (${content?.length} bytes)`);
+    } else {
+      console.log(`Skipped: ${file.path}`);
+    }
+  }
+});
+```
+
+### Caching
+
+```typescript
+const file = result.files.get('large-file.json');
+
+// First call: Reads from disk
+const content1 = await file?.after?.text();
+
+// Second call: Returns cached value (instant)
+const content2 = await file?.after?.text();
+
+console.log('Same reference:', content1 === content2);  // true
+```
+
+---
+
+## Complete Example
+
+```typescript
+import { vibeTest } from '@dao/vibe-check';
+
+vibeTest('comprehensive file analysis', async ({ runAgent, expect }) => {
+  const result = await runAgent({
+    prompt: '/implement authentication module'
+  });
+
+  // 1. Get all file changes
+  const files = result.files.changed();
+  console.log(`Total files changed: ${files.length}`);
+
+  // 2. Analyze by type
+  const stats = result.files.stats();
+  expect(stats.added).toBeGreaterThan(0);
+  expect(stats.deleted).toBe(0);
+
+  // 3. Examine specific file
+  const authFile = result.files.get('src/auth/login.ts');
+  expect(authFile).toBeDefined();
+  expect(authFile?.type).toBe('added');
+
+  // 4. Load and validate content
+  const authContent = await authFile?.after?.text();
+  expect(authContent).toContain('export async function login');
+  expect(authContent).toContain('try {');
+  expect(authContent).toContain('} catch');
+
+  // 5. Analyze all auth files
+  const authFiles = result.files.filter('src/auth/**/*.ts');
+
+  for (const file of authFiles) {
+    const content = await file.after?.text();
+
+    if (content) {
+      const lines = content.split('\n').length;
+      const exports = content.match(/^export /gm)?.length || 0;
+
+      console.log(`${file.path}:`);
+      console.log(`  Lines: ${lines}`);
+      console.log(`  Exports: ${exports}`);
+    }
+  }
+
+  // 6. Check diffs for security patterns
+  for (const file of authFiles) {
+    if (file.diff) {
+      const hasPasswordCheck = file.diff.includes('+  validatePassword');
+      const hasTokenCheck = file.diff.includes('+  verifyToken');
+
+      console.log(`${file.path} security checks:`);
+      console.log(`  Password validation: ${hasPasswordCheck}`);
+      console.log(`  Token verification: ${hasTokenCheck}`);
+    }
+  }
+
+  // 7. Compare before/after for modified files
+  const modified = files.filter(f => f.type === 'modified');
+
+  for (const file of modified) {
+    const before = await file.before?.text();
+    const after = await file.after?.text();
+
+    if (before && after) {
+      const growth = after.length - before.length;
+      console.log(`${file.path}: ${growth > 0 ? '+' : ''}${growth} bytes`);
+    }
+  }
+});
+```
+
+---
+
+## See Also
+
+- [RunResult →](/api/types/run-result/) - Contains FileAccessor
+- [PartialRunResult →](/api/types/partial-result/) - Incremental file changes
+- [Custom Matchers →](/api/types/matchers/) - File-related matchers
+- [Cumulative State →](/guides/testing/cumulative-state/) - File tracking across runs

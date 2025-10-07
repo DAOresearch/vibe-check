@@ -1,106 +1,217 @@
 ---
 title: Explanation
-description: Understanding how Vibe Check works internally
-sidebar:
-  order: 50
+description: Deep dive into vibe-check architecture, design decisions, and implementation details. Learn how auto-capture, lazy loading, and the dual API work under the hood.
 ---
 
-:::tip[💡 Explanation - Understanding-Oriented]
-This section provides **deep conceptual understanding** of how Vibe Check works internally. These docs explain the "why" behind design decisions, architecture patterns, and implementation choices.
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-**Looking for how to use Vibe Check?** See [Guides](/guides/) for practical how-tos.
-**Looking for API details?** See [API Reference](/api/) for function signatures.
-**New to Vibe Check?** Start with [Getting Started](/getting-started/) tutorials.
-:::
+Understand the architecture, design decisions, and implementation details behind vibe-check.
 
----
+## Quick Navigation
 
-:::tip[Who Should Read This?]
-- **Contributors** who need to understand internals to write code
-- **Advanced users** debugging or optimizing their usage
-- **Architects** evaluating Vibe Check for their projects
-- **Curious developers** who want to learn from the design
-:::
+<CardGrid>
+  <Card title="Core Concepts" icon="open-book">
+    Foundational ideas that shape how vibe-check works
+  </Card>
 
----
+  <Card title="Architecture" icon="seti:config">
+    Internal systems and how components interact
+  </Card>
 
-## Architecture & Design
-
-### [Architecture Overview](/explanation/architecture/)
-
-Technical deep-dive into Vibe Check's internal design:
-- **Capture → Process → Inject** architecture
-- ContextManager class and RunBundle structure
-- Hook integration with Claude Code
-- File change detection and correlation
-- Storage strategy (hybrid disk + thin meta)
-- Vitest integration patterns
-
-**Who needs this:** Contributors, advanced users, system architects
+  <Card title="Design Decisions" icon="approve-check">
+    Rationale behind key API and architecture choices
+  </Card>
+</CardGrid>
 
 ---
 
 ## Core Concepts
 
-### [Core Concepts & Mental Models](/explanation/core-concepts/)
+Foundational principles that guide vibe-check's design.
 
-Comprehensive guide to understanding how Vibe Check works:
-- **Prompts, Agents, Results** - The execution flow
-- **Auto-Capture System** - How execution context is automatically recorded
-- **Matchers & Judges** - Quality assertions and LLM evaluation
-- **vibeTest vs vibeWorkflow** - When to use each API
-- **Isolation & Sources** - Workspace management and worktrees
-- **Reporting** - Terminal and HTML report generation
+### [Dual API Surface](/explanation/concepts/dual-api/)
+Why vibe-check provides two distinct APIs for testing and automation.
+
+**Topics covered:**
+- vibeTest vs vibeWorkflow semantics
+- Use case alignment
+- API design philosophy
+- Shared primitives
+
+**Key insights:**
+- Tests focus on assertions and quality gates
+- Workflows focus on orchestration and cumulative context
+- Both share the same underlying primitives
+- API choice signals intent clearly
 
 ---
 
-:::note[Coming Soon]
-Additional deep-dives being written:
-- **Lazy Loading Pattern** - Why and how file content is loaded on-demand
-- **Fixture System** - How Vitest fixtures provide the magic
-- **Matrix Testing** - How Cartesian products generate test combinations
-:::
+### [Auto-Capture](/explanation/concepts/auto-capture/)
+How vibe-check automatically captures execution context without manual instrumentation.
+
+**Topics covered:**
+- Hook-based capture mechanism
+- What gets captured (files, tools, git state)
+- Correlation of pre/post events
+- Non-blocking capture design
+
+**Key insights:**
+- Zero-instrumentation approach
+- Comprehensive context capture
+- Graceful degradation on failures
+- Lazy loading for memory efficiency
+
+---
+
+### [Lazy Loading](/explanation/concepts/lazy-loading/)
+Memory-efficient file access through deferred content loading.
+
+**Topics covered:**
+- Content-addressed storage
+- On-demand file loading
+- Memory footprint optimization
+- API design for lazy access
+
+**Key insights:**
+- Scales to 100+ file changes
+- Minimal memory footprint
+- Transparent lazy accessors
+- Reporter-friendly disk bundles
+
+---
+
+## Architecture
+
+Internal systems and component interactions.
+
+### [Architecture Overview](/explanation/architecture/overview/)
+High-level system architecture and component relationships.
+
+**Topics covered:**
+- Core components (test, workflow, runner, context manager)
+- Data flow through the system
+- Vitest integration patterns
+- Reporter architecture
+
+**Key insights:**
+- Vitest-native design
+- Fixture-based dependency injection
+- Hybrid storage (disk + meta)
+- Reporter lifecycle integration
+
+---
+
+### [Context Manager](/explanation/architecture/context-manager/)
+The orchestrator for capture, processing, and injection of execution context.
+
+**Topics covered:**
+- Capture phase (hook file writes)
+- Processing phase (correlation, extraction)
+- Injection phase (RunResult population)
+- Error handling and graceful degradation
+
+**Key insights:**
+- Three-phase lifecycle
+- Event correlation algorithm
+- Non-blocking hook writes
+- Failure isolation
+
+---
+
+### [Run Bundle](/explanation/architecture/run-bundle/)
+The disk-based artifact storage structure.
+
+**Topics covered:**
+- Bundle directory structure
+- Content-addressed file storage
+- Metadata format
+- Retention policies
+
+**Key insights:**
+- 30-day default retention
+- Content deduplication
+- Deterministic paths
+- Reporter accessibility
+
+---
+
+### [Hook Integration](/explanation/architecture/hook-integration/)
+How vibe-check integrates with Claude Code hooks for data capture.
+
+**Topics covered:**
+- Supported hook types
+- Hook configuration
+- Capture mechanism
+- Event correlation
+
+**Key insights:**
+- Non-intrusive capture
+- Correlation via timestamps
+- Tool call pairing (PreTool + PostTool)
+- Timeline reconstruction
 
 ---
 
 ## Design Decisions
 
-### [Design Decisions Hub](/explanation/decisions/)
+Rationale behind key architectural and API choices.
 
-Explore the "why" behind major architectural choices:
+### [Design Rationale](/explanation/design/decisions/)
+Why vibe-check was designed the way it was.
 
-#### [Why Vitest?](/explanation/decisions/why-vitest/)
-Why build on Vitest instead of a custom test runner
-- Battle-tested infrastructure vs reinventing the wheel
-- Trade-offs: learning curve vs ecosystem benefits
-- What we get: parallel execution, watch mode, fixtures, reporters
+**Topics covered:**
+- Why Vitest v3 as foundation?
+- Why dual API surface?
+- Why hybrid storage (disk + meta)?
+- Why lazy loading?
+- Why workspace context design?
 
-#### [Dual API Design](/explanation/decisions/dual-api/)
-Why provide both `vibeTest` and `vibeWorkflow`
-- Clear intent: evaluation vs automation
-- Optimized semantics for each use case
-- Trade-offs: two APIs vs mixed concerns
+**Key insights:**
+- Vitest maturity and ecosystem
+- Semantic clarity through API split
+- Scalability through lazy loading
+- DX-first design principles
 
-#### [Storage Strategy](/explanation/decisions/storage-strategy/)
-Why use hybrid disk bundles + thin metadata
-- Scalability: handles 100+ file changes per run
-- Memory efficiency: 99% reduction vs all-in-memory
-- Trade-offs: complexity vs scalability
+---
 
-#### [Hook-Based Capture](/explanation/decisions/hook-capture/)
-Why use Claude Code hooks instead of SDK instrumentation
-- Rich events: PreToolUse, notifications, todos, subagents
-- Non-blocking: write temp files, process offline
-- Trade-offs: Claude Code dependency vs complete context
+## Reading Paths
+
+### For Framework Users
+If you're using vibe-check and want to understand how it works:
+
+1. [Dual API Surface](/explanation/concepts/dual-api/) - Understand vibeTest vs vibeWorkflow
+2. [Auto-Capture](/explanation/concepts/auto-capture/) - Learn what gets captured automatically
+3. [Architecture Overview](/explanation/architecture/overview/) - High-level system understanding
+
+### For Contributors
+If you're contributing to vibe-check or deeply debugging:
+
+1. [Architecture Overview](/explanation/architecture/overview/) - System architecture
+2. [Context Manager](/explanation/architecture/context-manager/) - Capture orchestration
+3. [Run Bundle](/explanation/architecture/run-bundle/) - Storage structure
+4. [Hook Integration](/explanation/architecture/hook-integration/) - Hook capture mechanics
+5. [Design Rationale](/explanation/design/decisions/) - Why things are the way they are
+
+### For Framework Designers
+If you're building similar tools or studying design patterns:
+
+1. [Design Rationale](/explanation/design/decisions/) - Design choices and tradeoffs
+2. [Dual API Surface](/explanation/concepts/dual-api/) - API design philosophy
+3. [Lazy Loading](/explanation/concepts/lazy-loading/) - Memory optimization patterns
+4. [Context Manager](/explanation/architecture/context-manager/) - Orchestration patterns
 
 ---
 
 ## Related Documentation
 
-- **[Contributing](/contributing/)** - How to contribute (process and workflow)
-- **[API Reference](/api/)** - Function signatures and types
-- **[Guides](/guides/)** - How to accomplish specific tasks
+### Tutorials
+- [Getting Started](/getting-started/) - Learn by doing with step-by-step tutorials
 
----
+### How-To Guides
+- [Testing Guides](/guides/testing/) - Practical testing patterns
+- [Automation Guides](/guides/automation/) - Workflow orchestration
+- [Advanced Guides](/guides/advanced/) - MCP, cost optimization, multi-modal
 
-[← Back to Documentation Home](../)
+### API Reference
+- [Core APIs](/api/) - Function signatures and usage
+- [Types](/api/types/) - TypeScript interface documentation
