@@ -16,6 +16,7 @@
     bun ./.claude/commands/wt/wt.ts cleanup [-y]
     bun ./.claude/commands/wt/wt.ts open <target>
     bun ./.claude/commands/wt/wt.ts delete <identifier> [-y]
+    bun ./.claude/commands/wt/wt.ts delete-all [-y]
 
   Optional wrapper (repo root):
     . (chmod +x) -> exec bun ./.claude/commands/wt/wt.ts "$@"
@@ -773,6 +774,105 @@ async function actionDelete(identifier: string | undefined) {
 	);
 }
 
+async function confirmDeleteAll(count: number): Promise<boolean> {
+	if (YES) return true;
+	logger.info(
+		`⚠️  Delete ALL ${count} worktree(s)? This will remove uncommitted changes. (y/n)`
+	);
+	const ans = await promptYesNo();
+	if (!ans) {
+		logger.info("Cancelled.");
+	}
+	return ans;
+}
+
+async function deleteWorktreeAndWindow(
+	mainRepoName: string,
+	wt: Worktree,
+	wins: TmuxWindow[]
+): Promise<{ worktreeDeleted: boolean; windowClosed: boolean }> {
+	let worktreeDeleted = false;
+	let windowClosed = false;
+
+	// Close matching tmux window
+	const win = wins.find((w) => w.panePath === wt.path);
+	if (win) {
+		const killResult = await run(
+			$`tmux kill-window -t ${mainRepoName}:${win.index}`
+		);
+		if (killResult.code === 0) {
+			logger.info(
+				`✓ Closed tmux window: ${mainRepoName}:${win.index} (${win.name})`
+			);
+			windowClosed = true;
+		}
+	}
+
+	// Remove worktree
+	const rm = await run($`git worktree remove ${wt.path} --force`);
+	if (rm.code === 0) {
+		logger.info(`✓ Removed worktree: ${wt.path}`);
+		worktreeDeleted = true;
+	} else {
+		logger.error(
+			`❌ Failed to remove worktree ${wt.path}: ${rm.stderr || rm.stdout}`
+		);
+	}
+
+	return { worktreeDeleted, windowClosed };
+}
+
+async function actionDeleteAll() {
+	await assertGitRepo();
+	const { mainRepoName, mainRepoRoot } = await getRepoContext();
+	const wts = await listWorktrees();
+
+	// Filter out main worktree (identified by matching path with main repo root)
+	const nonMainWorktrees = wts.filter((w) => w.path !== mainRepoRoot);
+
+	if (nonMainWorktrees.length === 0) {
+		logger.info("✓ No non-main worktrees to delete.");
+		return;
+	}
+
+	// Show what will be deleted
+	logger.info("⚠️  The following worktrees will be deleted:");
+	for (const wt of nonMainWorktrees) {
+		logger.info(`  - ${wt.branch} @ ${wt.path}`);
+	}
+	logger.info("");
+
+	// Get confirmation
+	const confirmed = await confirmDeleteAll(nonMainWorktrees.length);
+	if (!confirmed) {
+		process.exit(0);
+	}
+
+	// Get all tmux windows once
+	const wins = (await tmuxExists()) ? await listTmuxWindows(mainRepoName) : [];
+
+	let deletedCount = 0;
+	let windowsClosedCount = 0;
+
+	// Delete each worktree
+	for (const wt of nonMainWorktrees) {
+		const result = await deleteWorktreeAndWindow(mainRepoName, wt, wins);
+		if (result.worktreeDeleted) deletedCount++;
+		if (result.windowClosed) windowsClosedCount++;
+	}
+
+	logger.info("");
+	logger.info("🧹 Delete All Complete:");
+	logger.info(
+		`  Worktrees deleted: ${deletedCount}/${nonMainWorktrees.length}`
+	);
+	logger.info(`  Tmux windows closed: ${windowsClosedCount}`);
+	logger.info("");
+	logger.info(
+		"Note: Branches still exist. To delete them, use:\n  git branch -D <branch-name>"
+	);
+}
+
 // ---------- prompt helper ----------
 
 async function promptYesNo(): Promise<boolean> {
@@ -905,6 +1005,9 @@ async function main() {
 		case "delete":
 			await actionDelete(rest[0]);
 			break;
+		case "delete-all":
+			await actionDeleteAll();
+			break;
 		case "debug":
 			await actionDebug();
 			break;
@@ -930,6 +1033,7 @@ function printHelp() {
 			"  wt cleanup [-y|--yes]         Clean up orphaned items",
 			"  wt open <target>              Switch to window by name/index",
 			"  wt delete <identifier> [-y]   Delete worktree and window",
+			"  wt delete-all [-y|--yes]      Delete ALL non-main worktrees",
 			"  wt debug                      Show detailed debug information",
 			"",
 			"Flags:",

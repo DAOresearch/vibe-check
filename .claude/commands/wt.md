@@ -50,6 +50,46 @@ Based on the user's subcommand (`$1`), execute the appropriate action:
 | `/wt open <target>` | Execute: `bun scripts/wt.ts open <target>` |
 | `/wt cleanup` | Execute: `bun scripts/wt.ts cleanup [-y]` |
 | `/wt delete <id>` | Execute: `bun scripts/wt.ts delete <id> [-y]` |
+| `/wt delete-all` | Execute: `bun scripts/wt.ts delete-all [-y]` |
+
+## IMPORTANT: Understanding `cleanup` vs `delete`
+
+**`cleanup` does NOT delete all worktrees!** It only removes orphaned/stale items:
+- Tmux windows without matching worktrees
+- Worktrees without matching tmux windows
+- Missing or broken symlinks
+
+**To delete all worktrees and start fresh:**
+
+**Option 1: Use `delete-all` (recommended)**
+```bash
+/wt delete-all -y  # Deletes all non-main worktrees in one command
+```
+
+**Option 2: Delete individually**
+1. First, list all worktrees: `/wt list`
+2. Delete each one: `/wt delete <branch-name> -y`
+3. Then create new ones: `/wt create <new-branch>`
+
+**Example: Reset for new spike work**
+```bash
+# Wrong approach:
+/wt cleanup -y  # This won't delete existing worktrees!
+
+# Correct approach (recommended):
+/wt delete-all -y
+/wt create spike/hook-capture
+/wt create spike/sdk-integration
+/wt create spike/tool-call-correlation
+
+# Alternative (manual):
+/wt delete spike/hook-capture -y
+/wt delete spike/sdk-integration -y
+/wt delete spike/tool-call-correlation -y
+/wt create spike/hook-capture
+/wt create spike/sdk-integration
+/wt create spike/tool-call-correlation
+```
 
 ## Formatting Rules
 
@@ -182,6 +222,9 @@ Execute directly:
 ```bash
 cd "$(git rev-parse --show-toplevel)" && bun scripts/wt.ts cleanup -y
 ```
+
+**Note:** This only removes orphaned items (tmux windows without worktrees, worktrees without windows).
+It does NOT delete all worktrees. See "Understanding cleanup vs delete" section above.
 </process>
 
 <expected_output>
@@ -191,6 +234,51 @@ Orphaned Windows: 0 closed
 Missing Windows: 2 created
 Path Issues: 0 detected
 ✓ Cleanup complete
+</expected_output>
+</example>
+
+## Example 6: Delete All Non-Main Worktrees
+
+<input>/wt delete-all -y</input>
+
+<process>
+Execute directly:
+```bash
+cd "$(git rev-parse --show-toplevel)" && bun scripts/wt.ts delete-all -y
+```
+
+This command:
+1. Lists all non-main worktrees
+2. Shows what will be deleted
+3. Confirms deletion (skipped with -y flag)
+4. Deletes each worktree and closes corresponding tmux windows
+</process>
+
+<expected_output>
+⚠️  The following worktrees will be deleted:
+  - issue/24 @ /Users/abuusama/repos/worktrees/vibe-check/24
+  - spike/hook-capture @ /Users/abuusama/repos/worktrees/vibe-check/hook-capture
+  - spike/sdk-integration @ /Users/abuusama/repos/worktrees/vibe-check/sdk-integration
+  - spike/tool-call-correlation @ /Users/abuusama/repos/worktrees/vibe-check/tool-call-correlation
+  - feat/vibetest-implementation-plan @ /Users/abuusama/repos/worktrees/vibe-check/vibetest-implementation
+
+✓ Closed tmux window: vibe-check:3 (issue/24)
+✓ Removed worktree: /Users/abuusama/repos/worktrees/vibe-check/24
+✓ Closed tmux window: vibe-check:2 (spike/hook-capture)
+✓ Removed worktree: /Users/abuusama/repos/worktrees/vibe-check/hook-capture
+✓ Closed tmux window: vibe-check:4 (spike/sdk-integration)
+✓ Removed worktree: /Users/abuusama/repos/worktrees/vibe-check/sdk-integration
+✓ Closed tmux window: vibe-check:5 (spike/tool-call-correlation)
+✓ Removed worktree: /Users/abuusama/repos/worktrees/vibe-check/tool-call-correlation
+✓ Closed tmux window: vibe-check:6 (feat/vibetest-implementation-plan)
+✓ Removed worktree: /Users/abuusama/repos/worktrees/vibe-check/vibetest-implementation
+
+🧹 Delete All Complete:
+  Worktrees deleted: 5/5
+  Tmux windows closed: 5
+
+Note: Branches still exist. To delete them, use:
+  git branch -D <branch-name>
 </expected_output>
 </example>
 </examples>
