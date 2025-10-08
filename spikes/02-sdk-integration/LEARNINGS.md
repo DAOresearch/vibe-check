@@ -27,7 +27,7 @@
 
 ## Additional Insights
 
-- The bridge auto-falls back to a local stub when no `CLAUDE_CODE_OAUTH_TOKEN` (preferred) or legacy API key env vars are present. Set `VIBE_AGENT_MODE=live` (with creds) to force the real SDK; otherwise we remain in stubbed testing mode.
+- The bridge auto-falls back to a local stub unless `VIBE_AGENT_MODE=live` is set. Credential discovery is left to Claude Code (OAuth token env var, persisted settings, etc.), matching real deployment behavior.
 - We should emit both formats from a single stream capture (e.g., derive JSON from the NDJSON artefact) to avoid double-running `query()` and diverging timestamps.
 - The stubbed query stream exposed enough variety (tool invocation, streaming delta, terminal result) to validate serialization without touching the network.
 

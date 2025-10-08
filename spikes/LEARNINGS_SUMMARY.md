@@ -42,7 +42,7 @@
    - Add telemetry + metrics hooks (queue depth, write failures, version mismatch warnings).
 
 2. **Enforce SDK semantics**  
-   - Require `VIBE_AGENT_MODE=live` (plus `CLAUDE_CODE_OAUTH_TOKEN` or legacy API key) before loading the real package.  
+   - `VIBE_AGENT_MODE=live` now opt-in to the real SDK; credential sourcing stays with Claude Code so runs don't depend on specific env vars.  
    - Fail fast when replaying fixtures recorded with a different SDK semver.
 
 3. **Operational hygiene**  

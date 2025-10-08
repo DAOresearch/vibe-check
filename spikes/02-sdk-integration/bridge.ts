@@ -1,17 +1,13 @@
 import type { QueryRequest, QueryResultStream } from "./types";
 
 /**
- * Set `VIBE_AGENT_MODE=live` (and provide an OAuth token or legacy API key) to exercise
- * the real SDK. Any other value, or missing credentials, keeps the spike in stubbed mode.
+ * Set `VIBE_AGENT_MODE=live` to exercise the real SDK. Credential discovery is delegated
+ * to Claude Code itself (OAuth token, stored settings, etc.). Any other value keeps the
+ * spike running against the local stub.
  */
 const agentMode = (process.env.VIBE_AGENT_MODE ?? "testing").toLowerCase();
 const requestLiveSdk = agentMode === "live";
-const hasCredential = Boolean(
-	process.env.CLAUDE_CODE_OAUTH_TOKEN ||
-		process.env.ANTHROPIC_API_KEY ||
-		process.env.CLAUDE_CODE_API_KEY
-);
-const FORCE_STUB = !(requestLiveSdk && hasCredential);
+const FORCE_STUB = !requestLiveSdk;
 
 type QueryImplementation = (request: QueryRequest) => QueryResultStream;
 
