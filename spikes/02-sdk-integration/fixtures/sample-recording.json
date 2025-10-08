@@ -1,0 +1,94 @@
+{
+  "format": "json",
+  "recordedAt": "2025-10-08T11:48:49.737Z",
+  "sdkVersion": "0.0.0-stub",
+  "request": {
+    "prompt": "Summarize the benefits of NDJSON for streaming Claude agent transcripts.",
+    "model": "claude-3-5-sonnet-latest",
+    "tools": [
+      {
+        "name": "documentation_search",
+        "description": "Search project documentation"
+      }
+    ],
+    "metadata": {
+      "spike": "sdk-integration"
+    }
+  },
+  "metadata": {
+    "format": "json",
+    "scenario": "basic"
+  },
+  "messages": [
+    {
+      "index": 0,
+      "offsetMs": 0.5706249999999997,
+      "message": {
+        "type": "system",
+        "text": "Stub Claude Agent SDK v0.0.0-stub",
+        "timestamp": 1759924129725
+      }
+    },
+    {
+      "index": 1,
+      "offsetMs": 0.6009160000000016,
+      "message": {
+        "type": "user",
+        "text": "Summarize the benefits of NDJSON for streaming Claude agent transcripts.",
+        "timestamp": 1759924129725
+      }
+    },
+    {
+      "index": 2,
+      "offsetMs": 0.6079159999999995,
+      "message": {
+        "type": "assistant",
+        "text": "Invoking tool...",
+        "timestamp": 1759924129725,
+        "toolCallId": "28a54478-119c-4b31-91bb-74680aafd2bb",
+        "channel": "tool_invocation"
+      }
+    },
+    {
+      "index": 3,
+      "offsetMs": 6.395790999999999,
+      "message": {
+        "type": "stream_event",
+        "event": "completion_delta",
+        "delta": "processed chunk",
+        "toolCallId": "28a54478-119c-4b31-91bb-74680aafd2bb",
+        "timestamp": 1759924129731
+      }
+    },
+    {
+      "index": 4,
+      "offsetMs": 12.093582999999999,
+      "message": {
+        "type": "result",
+        "toolCallId": "28a54478-119c-4b31-91bb-74680aafd2bb",
+        "outputText": "{\"success\":true,\"tool\":\"search\",\"args\":[{\"name\":\"documentation_search\",\"description\":\"Search project documentation\"}]}",
+        "timestamp": 1759924129737
+      }
+    },
+    {
+      "index": 5,
+      "offsetMs": 12.098625000000002,
+      "message": {
+        "type": "assistant",
+        "text": "Tool run complete. Summary: success.",
+        "timestamp": 1759924129737
+      }
+    },
+    {
+      "index": 6,
+      "offsetMs": 12.110916,
+      "message": {
+        "type": "stream_event",
+        "event": "tool_completed",
+        "toolCallId": "28a54478-119c-4b31-91bb-74680aafd2bb",
+        "delta": "{\"runDurationMs\":11.741541999999999}",
+        "timestamp": 1759924129737
+      }
+    }
+  ]
+}

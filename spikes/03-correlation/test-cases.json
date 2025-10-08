@@ -1,0 +1,131 @@
+{
+  "normal": {
+    "description": "Standard chronological Pre/Post pairs",
+    "events": [
+      {
+        "hook": "PreToolUse",
+        "runId": "run-1",
+        "sessionId": "session-1",
+        "toolName": "editor_open",
+        "toolInvocationId": "call-1",
+        "ts": 1000,
+        "sequence": 1,
+        "data": { "toolInput": { "path": "src/main.ts" } }
+      },
+      {
+        "hook": "PostToolUse",
+        "runId": "run-1",
+        "sessionId": "session-1",
+        "toolName": "editor_open",
+        "toolInvocationId": "call-1",
+        "ts": 1100,
+        "sequence": 2,
+        "data": { "toolOutput": { "ok": true } }
+      },
+      {
+        "hook": "PreToolUse",
+        "runId": "run-1",
+        "sessionId": "session-1",
+        "toolName": "terminal_run",
+        "toolInvocationId": "call-2",
+        "ts": 1150,
+        "sequence": 3,
+        "data": { "toolInput": { "command": "bun test" } }
+      },
+      {
+        "hook": "PostToolUse",
+        "runId": "run-1",
+        "sessionId": "session-1",
+        "toolName": "terminal_run",
+        "toolInvocationId": "call-2",
+        "ts": 1450,
+        "sequence": 4,
+        "data": { "toolOutput": { "exitCode": 0 } }
+      }
+    ],
+    "expectedStatuses": ["completed", "completed"]
+  },
+  "missingPost": {
+    "description": "PreToolUse recorded but PostToolUse missing (agent crashed)",
+    "events": [
+      {
+        "hook": "PreToolUse",
+        "runId": "run-2",
+        "sessionId": "session-9",
+        "toolName": "git_diff",
+        "ts": 2000,
+        "sequence": 1,
+        "data": { "toolInput": { "path": "." } }
+      }
+    ],
+    "expectedStatuses": ["missing-post"]
+  },
+  "concurrent": {
+    "description": "Multiple concurrent tool invocations sharing the same tool name",
+    "events": [
+      {
+        "hook": "PreToolUse",
+        "runId": "run-3",
+        "sessionId": "session-3",
+        "toolName": "file_write",
+        "ts": 3000,
+        "sequence": 1,
+        "data": { "toolInput": { "path": "a.txt" } }
+      },
+      {
+        "hook": "PreToolUse",
+        "runId": "run-3",
+        "sessionId": "session-3",
+        "toolName": "file_write",
+        "ts": 3010,
+        "sequence": 2,
+        "data": { "toolInput": { "path": "b.txt" } }
+      },
+      {
+        "hook": "PostToolUse",
+        "runId": "run-3",
+        "sessionId": "session-3",
+        "toolName": "file_write",
+        "ts": 3050,
+        "sequence": 3,
+        "data": { "toolOutput": { "path": "a.txt", "bytes": 10 } }
+      },
+      {
+        "hook": "PostToolUse",
+        "runId": "run-3",
+        "sessionId": "session-3",
+        "toolName": "file_write",
+        "ts": 3090,
+        "sequence": 4,
+        "data": { "toolOutput": { "path": "b.txt", "bytes": 20 } }
+      }
+    ],
+    "expectedStatuses": ["completed", "completed"]
+  },
+  "reordered": {
+    "description": "PostToolUse arrives before matching PreToolUse due to async logging",
+    "events": [
+      {
+        "hook": "PostToolUse",
+        "runId": "run-4",
+        "sessionId": "session-7",
+        "toolName": "terminal_run",
+        "toolInvocationId": "call-7",
+        "ts": 4020,
+        "sequence": 3,
+        "data": { "toolOutput": { "exitCode": 1 } }
+      },
+      {
+        "hook": "PreToolUse",
+        "runId": "run-4",
+        "sessionId": "session-7",
+        "toolName": "terminal_run",
+        "toolInvocationId": "call-7",
+        "ts": 4000,
+        "sequence": 2,
+        "data": { "toolInput": { "command": "bun lint" } }
+      }
+    ],
+    "expectedStatuses": ["completed"]
+  }
+}
