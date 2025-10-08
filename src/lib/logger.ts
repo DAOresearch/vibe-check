@@ -8,13 +8,7 @@ const consoleFormat = combine(
 	colorize({ all: true }),
 	timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
 	errors({ stack: true }),
-	printf(({ timestamp: ts, level, message, ...metadata }) => {
-		let msg = `${ts} [${level}]: ${message}`;
-		if (Object.keys(metadata).length > 0) {
-			msg += `\n${JSON.stringify(metadata, null, 2)}`;
-		}
-		return msg;
-	})
+	printf(({ message }) => `${message}`)
 );
 
 // JSON format for file output with timestamps

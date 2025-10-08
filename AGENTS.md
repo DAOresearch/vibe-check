@@ -200,13 +200,13 @@ Located in `.claude/docs/vibecheck/`:
 
 ## ✅ Success Criteria
 
-### Phase 0 Complete When:
+### Phase 0 Complete When
 - ✅ All 3 spikes completed
 - ✅ Learnings documented
 - ✅ No critical blockers
 - ✅ Go decision for Phase 1
 
-### Overall Implementation Complete When:
+### Overall Implementation Complete When
 - ✅ All 5 phases complete
 - ✅ Test coverage: core ≥95%, supporting ≥90%, utility ≥85%
 - ✅ Performance: unit ≤45s, integration ≤90s, E2E ≤5min
