@@ -31,9 +31,9 @@
 
 | Component | Complexity | Uncertainty | Impact | Risk Score | Priority | Mitigation Strategy |
 |-----------|------------|-------------|--------|------------|----------|---------------------|
-| **Hook Capture System** | 3 (High) | 3 (High) | 10 (Critical) | **9.0** | 🔴 1 | Spike: Build prototype, test with real SDK |
-| **SDK Integration** | 2 (Medium) | 3 (High) | 10 (Critical) | **8.0** | 🔴 2 | Spike: Build recorder/replayer prototype |
-| **Tool Call Correlation** | 3 (High) | 2 (Medium) | 8 (High) | **7.2** | 🟡 3 | Spike: Test correlation algorithm with edge cases |
+| **Hook Capture System** | 3 (High) | 2 (Medium) | 9 (High) | **5.4** | 🟡 1 | Spike completed – capture prototype + perf data |
+| **SDK Integration** | 3 (High) | 2 (Medium) | 8 (High) | **4.8** | 🟡 2 | Spike completed – recorder/replayer validated |
+| **Tool Call Correlation** | 3 (High) | 2 (Medium) | 6 (Medium) | **3.6** | 🟢 3 | Spike completed – algorithm + benchmarks |
 | **Content-Addressed Storage** | 2 (Medium) | 2 (Medium) | 8 (High) | **4.8** | 🟡 4 | Spike: Benchmark performance with large files |
 | **LLM Judge Parsing** | 2 (Medium) | 3 (High) | 6 (Medium) | **4.8** | 🟡 5 | Spike: Test prompt formats, parsing reliability |
 | **Reactive Watchers** | 3 (High) | 2 (Medium) | 6 (Medium) | **4.8** | 🟡 6 | Spike: Build thenable prototype, test abort |
@@ -50,120 +50,54 @@
 
 ## High-Risk Components (Require Spikes)
 
-### 1. Hook Capture System (Risk Score: 9.0)
+### 1. Hook Capture System (Updated Risk Score: 5.4)
 
-**Why High Risk?**
-- **Complexity**: Non-blocking I/O, concurrent writes, graceful degradation
-- **Uncertainty**: Unknown whether hooks can be captured reliably without blocking
-- **Impact**: Critical foundation - entire test framework depends on hook data
+**Spike Outcome**
+- Non-blocking NDJSON capture implemented with in-memory queue + stream back-pressure.
+- Benchmark: 5 000 events captured in 82 ms (≈1.6 % overhead vs 5 s run).
+- Failure path exercised via simulated disk error (`onWriteError`), confirming graceful shutdown/degradation.
 
-**Key Questions**:
-- Can we write hooks to temp files without blocking agent execution?
-- What's the performance overhead? (Must be <5%)
-- How do we handle write failures gracefully?
-- When should we clean up temp files?
-- What file format works best? (One file per hook? One file total? NDJSON?)
+**Residual Risk**
+- Requires production hardening around multi-process cleanup and telemetry.
+- Still depends on upstream hooks providing consistent timestamps.
 
-**Spike Plan**:
-```
-Duration: 6-8 hours
-Approach:
-1. Build minimal hook listener that writes to temp files
-2. Test with real Claude SDK execution (multiple scenarios)
-3. Measure performance overhead with benchmarks
-4. Test failure scenarios (disk full, permissions, etc.)
-5. Document findings in spikes/01-hook-capture/LEARNINGS.md
-
-Success Criteria:
-- All hook events captured correctly
-- No dropped hooks under load (100 tool calls)
-- Performance overhead <5%
-- Graceful degradation on failures
-```
-
-**Mitigation If Spike Fails**:
-- Fallback to in-memory hook capture (with memory limits)
-- Reduce hook data captured (only essential fields)
-- Make hook capture optional (graceful degradation)
+**Next Steps**
+- Promote capture session into the kernel with metrics (queue depth, bytes written).
+- Add manifest-driven cleanup to avoid temp file leaks in crash scenarios.
 
 ---
 
-### 2. SDK Integration (Risk Score: 8.0)
+### 2. SDK Integration (Updated Risk Score: 4.8)
 
-**Why High Risk?**
-- **Complexity**: Bridge layer, recorder/replayer, versioning
-- **Uncertainty**: Unknown SDK behavior, recording format, replay determinism
-- **Impact**: Critical for testing - all tests use SDK
+**Spike Outcome**
+- Bridge dynamically selects real SDK or local stub (default stub without API keys).
+- Recorder persists complete message streams (JSON + NDJSON) including semver + timing metadata.
+- Replayer yields deterministic sequences; fixtures generated for regression tests.
 
-**Key Questions**:
-- What SDK methods do we need to wrap?
-- What recording format works best? (JSON? NDJSON? Binary?)
-- How do we handle timing/randomness in replay?
-- Can we version recordings by SDK semver?
-- How do we detect SDK version mismatches?
+**Residual Risk**
+- Real SDK parity still needs validation (networked integration test).
+- Version mismatch detection is advisory in the prototype—must become a hard guardrail.
 
-**Spike Plan**:
-```
-Duration: 6-8 hours
-Approach:
-1. Build minimal SDK bridge layer
-2. Prototype recorder (capture all SDK calls)
-3. Prototype replayer (replay from fixtures)
-4. Test deterministic replay with same inputs
-5. Document findings in spikes/02-sdk-integration/LEARNINGS.md
-
-Success Criteria:
-- Recorder captures all relevant SDK calls
-- Replayer replays deterministically
-- Handles timing correctly
-- Can detect version mismatches
-```
-
-**Mitigation If Spike Fails**:
-- Use simple mocks instead of full recorder/replayer
-- Accept non-deterministic tests (less ideal)
-- Require real SDK for all tests (slower, but reliable)
+**Next Steps**
+- Flesh out production API (`recordQueryTo`, `replayFixture`) backed by these prototypes.
+- Add integrity hash + SDK version check before replaying fixtures in CI.
 
 ---
 
-### 3. Tool Call Correlation (Risk Score: 7.2)
+### 3. Tool Call Correlation (Updated Risk Score: 3.6)
 
-**Why High Risk?**
-- **Complexity**: Correlation algorithm, edge cases, concurrent calls
-- **Uncertainty**: Unknown if PreToolUse + PostToolUse can be reliably matched
-- **Impact**: High - tool call data is central to RunResult
+**Spike Outcome**
+- FIFO queue correlator matches pre/post events using `toolInvocationId` (with session/tool fallback).
+- Handles out-of-order delivery and missing counterparts by surfacing `missing-post` and `orphan-post`.
+- Benchmark on 2 000 tool calls completes in 8.53 ms (≈4.26 µs per call).
 
-**Key Questions**:
-- What correlation strategy works best? (timestamp? sequence ID? UUID?)
-- How do we handle missing PostToolUse events?
-- Can we handle concurrent tool calls correctly?
-- What's the performance characteristic? (O(n) vs O(n²)?)
+**Residual Risk**
+- Relies on upstream instrumentation to emit stable invocation IDs; fallback keys can collide in pathological scenarios.
+- Needs guardrails around memory usage if thousands of concurrent invocations queue up.
 
-**Spike Plan**:
-```
-Duration: 4-6 hours
-Approach:
-1. Build minimal correlation algorithm
-2. Create test cases:
-   - Normal: PreToolUse + PostToolUse pairs
-   - Missing PostToolUse (agent crashes mid-tool)
-   - Concurrent tool calls (multiple tools in flight)
-   - Reordered events (out-of-order arrival)
-3. Test with sample hook data
-4. Benchmark performance (1000+ tool calls)
-5. Document findings in spikes/03-correlation/LEARNINGS.md
-
-Success Criteria:
-- 100% correlation accuracy on test cases
-- Handles missing PostToolUse gracefully
-- Handles concurrent calls correctly
-- Performance is O(n) or better
-```
-
-**Mitigation If Spike Fails**:
-- Use simpler correlation (timestamp-based, less reliable)
-- Accept some unmatched tool calls
-- Add tool call IDs to Claude SDK hooks (upstream fix)
+**Next Steps**
+- Enforce ID generation at hook emission time to avoid fallback collisions.
+- Add the benchmark to CI to monitor regression in complexity or runtime.
 
 ---
 
@@ -256,5 +190,5 @@ _Add notes during risk assessment workshop_
 
 ---
 
-**Status**: Ready for Risk Assessment Workshop
-**Next Action**: Schedule workshop with team
+**Status**: Phase 0 spikes complete – risks updated
+**Next Action**: Kick off Phase 1 (Shared Kernel) incorporating spike learnings

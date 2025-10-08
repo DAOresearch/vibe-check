@@ -11,6 +11,7 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
+    "types": ["bun-types"],
     "strict": true,
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
@@ -24,5 +25,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", ".astro/types.d.ts"]
+  "include": ["src/**/*", "spikes/**/*", ".astro/types.d.ts"]
 }
