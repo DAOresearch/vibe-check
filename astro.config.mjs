@@ -1,3 +1,4 @@
+import sitemap from "@astrojs/sitemap";
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 
@@ -9,6 +10,7 @@ export default defineConfig({
 	base: process.env.NODE_ENV === "production" ? "/vibe-check" : "",
 	trailingSlash: "always",
 	integrations: [
+		sitemap(),
 		starlight({
 			title: "Vibe Check",
 			description: "Automation and Evaluation framework for Claude Code agents",
